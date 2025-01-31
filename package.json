@@ -1,0 +1,17 @@
+{
+  "name": "openai-prompt",
+  "version": "1.0.0",
+  "description": "OpenAI Prompt Desktop App",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "start-python": "python backend.py",
+    "dev": "concurrently \"npm run start-python\" \"electron .\""
+  },
+  "dependencies": {
+    "electron": "^28.3.3"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.1"
+  }
+}

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Journal</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="main-container">
+            <div class="main-header">
+                <button id="toggleSessions">📝</button>
+            </div>
+            <div id="response"></div>
+            <div class="prompt-container">
+                <input type="text" id="promptInput" placeholder="Enter your prompt...">
+                <div class="button-container">
+                    <button id="sendButton">→</button>
+                    <button id="refreshButton">↺</button>
+                </div>
+            </div>
+        </div>
+        <div class="sidebar collapsed">
+            <div class="sidebar-header">
+                <h3>Sessions</h3>
+                <button id="newSessionButton">+</button>
+            </div>
+            <div id="sessionsList"></div>
+            <div class="session-viewer"></div>
+        </div>
+    </div>
+    <div id="createSessionModal" class="modal">
+        <div class="modal-content">
+            <h3>Create New Session</h3>
+            <input type="text" id="sessionNameInput" placeholder="Enter session name">
+            <div class="modal-buttons">
+                <button id="createSessionConfirm">Create</button>
+                <button id="createSessionCancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <div id="apiKeyModal" class="modal">
+        <div class="modal-content">
+            <h3>OpenAI API Key Required</h3>
+            <p style="margin-bottom: 15px; color: #ccc;">Please enter your OpenAI API key to continue</p>
+            <input type="password" id="apiKeyInput" placeholder="sk-...">
+            <div class="modal-buttons">
+                <button id="submitApiKey">Submit</button>
+            </div>
+        </div>
+    </div>
+    <script src="renderer.js"></script>
+</body>
+</html> 
