@@ -1,10 +1,40 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const fs = require('fs');
+const { globalShortcut } = require('electron');
 
 let mainWindow;
 let pythonProcess;
 let openaiApiKey = null;
+
+function ensureAppDirectories() {
+    const appDataPath = path.join(app.getPath('userData'), 'BitNote');
+    console.log('Attempting to create directory at:', appDataPath);
+    console.log('userData path:', app.getPath('userData'));
+    
+    try {
+        if (!fs.existsSync(appDataPath)) {
+            fs.mkdirSync(appDataPath, { recursive: true });
+            console.log('Successfully created directory');
+        } else {
+            console.log('Directory already exists');
+        }
+        // Test write permissions
+        const testFile = path.join(appDataPath, 'test.txt');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        console.log('Successfully tested write permissions');
+    } catch (error) {
+        console.error('Error creating/accessing directory:', error);
+        console.error('Will try to create in home directory instead');
+        const homePath = path.join(require('os').homedir(), 'BitNote');
+        fs.mkdirSync(homePath, { recursive: true });
+        return homePath;
+    }
+    
+    return appDataPath;
+}
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -15,7 +45,6 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
-            preload: path.join(__dirname, 'preload.js')
         },
         frame: true,
         transparent: false,
@@ -26,7 +55,6 @@ function createWindow() {
     });
 
     mainWindow.loadFile('src/index.html');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
 
     mainWindow.on('closed', function () {
         mainWindow = null;
@@ -34,44 +62,49 @@ function createWindow() {
 }
 
 function startPythonBackend() {
-    const scriptPath = path.join(__dirname, 'python', 'backend.py');
-    console.log('Starting Python backend at:', scriptPath);
+    const isDev = process.defaultApp || /[\\/]electron-prebuilt[\\/]/.test(process.execPath);
+    const appDataPath = ensureAppDirectories();
+    const appPath = isDev ? __dirname : path.join(process.resourcesPath, 'app');
+    const scriptPath = path.join(appPath, 'electron', 'python', 'dist', 'backend');
     
-    pythonProcess = spawn('python', [scriptPath], {
+    pythonProcess = spawn(scriptPath, [], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
             ...process.env,
+            NODE_ENV: process.env.NODE_ENV || 'production',
+            APP_DATA_PATH: appDataPath,
+            PATH: process.env.PATH
         }
     });
 
+    setupPythonProcessHandlers(pythonProcess);
+}
+
+function setupPythonProcessHandlers(process) {
     let buffer = '';
-    pythonProcess.stdout.on('data', (data) => {
+    process.stdout.on('data', (data) => {
         buffer += data.toString();
         let newlineIndex;
         while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
             const line = buffer.slice(0, newlineIndex);
             buffer = buffer.slice(newlineIndex + 1);
-            
             try {
                 const result = JSON.parse(line);
-                mainWindow.webContents.send('python-response', result);
+                if (mainWindow) {
+                    mainWindow.webContents.send('python-response', result);
+                }
             } catch (e) {
-                console.log('Debug output:', line);
             }
         }
     });
 
-    // Log debug messages to console
-    pythonProcess.stderr.on('data', (data) => {
-        console.log('Python debug:', data.toString());
+    process.stderr.on('data', (data) => {
     });
 
-    pythonProcess.on('error', (error) => {
-        console.error('Failed to start Python process:', error);
-    });
-
-    pythonProcess.on('exit', (code) => {
-        console.log(`Python process exited with code ${code}`);
+    process.on('exit', (code) => {
+        if (code !== 0) {
+            setTimeout(startPythonBackend, 1000);
+        }
     });
 }
 
@@ -84,14 +117,20 @@ ipcMain.on('send-prompt', (event, data) => {
 });
 
 ipcMain.on('start-session', (event, data) => {
-    console.log('Starting new session:', data);  // Debug print
+    console.log('\n=== Received start-session request ===');
+    console.log('Data:', data);
+    console.log('Python process exists:', !!pythonProcess);
+    console.log('Python stdin writable:', !!(pythonProcess && pythonProcess.stdin));
+    
     if (pythonProcess && pythonProcess.stdin) {
         const message = {
             command: 'start-session',
             name: data.name
         };
-        console.log('Sending to Python:', message);  // Debug print
+        console.log('Sending to Python:', message);
         pythonProcess.stdin.write(JSON.stringify(message) + '\n');
+    } else {
+        console.error('Python process not available');
     }
 });
 
@@ -154,8 +193,27 @@ ipcMain.on('check-api-key', (event) => {
 });
 
 app.on('ready', () => {
-    createWindow();
-    startPythonBackend();
+    console.log('\n=== App Starting ===');
+    // Create app directory before anything else
+    const appDataPath = ensureAppDirectories();
+    console.log('Created app directory at:', appDataPath);
+    console.log('Directory exists:', fs.existsSync(appDataPath));
+    
+    try {
+        createWindow();
+        console.log('Window created successfully');
+        startPythonBackend();
+        console.log('Python backend start attempted');
+    } catch (error) {
+        console.error('Error during startup:', error);
+    }
+    
+    // Register keyboard shortcut for DevTools
+    globalShortcut.register('CommandOrControl+Shift+I', () => {
+        if (mainWindow) {
+            mainWindow.webContents.openDevTools();
+        }
+    });
 });
 
 app.on('window-all-closed', () => {
@@ -171,4 +229,9 @@ app.on('activate', () => {
     if (mainWindow === null) {
         createWindow();
     }
+});
+
+// Clean up shortcuts
+app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
 }); 

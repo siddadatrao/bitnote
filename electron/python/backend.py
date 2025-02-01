@@ -8,6 +8,7 @@ import asyncio
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor
 import functools
+import traceback
 
 # At the top of the file with other global instances
 executor = ThreadPoolExecutor(max_workers=4)
@@ -20,23 +21,20 @@ SYSTEM_PROMPT = "You are a helpful assistant."
 def save_api_key(key):
     """Save API key to a file"""
     try:
-        # Get the directory where the script is located
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        key_file = os.path.join(script_dir, 'api_key.json')
-        
+        data_dir = get_app_data_dir()
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+        key_file = os.path.join(data_dir, 'api_key.json')
         with open(key_file, 'w') as f:
             json.dump({'key': key}, f)
-            sys.stderr.write(f"Saved API key to file: {key[:4]}...\n")
     except Exception as e:
-        sys.stderr.write(f"Error saving API key: {str(e)}\n")
-        sys.stderr.flush()
+        pass
 
 def load_api_key():
     """Load API key from file"""
     try:
-        # Get the directory where the script is located
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        key_file = os.path.join(script_dir, 'api_key.json')
+        data_dir = get_app_data_dir()  # Use same directory as sessions
+        key_file = os.path.join(data_dir, 'api_key.json')
         sys.stderr.write(f"Looking for API key file at: {key_file}\n")
         
         if os.path.exists(key_file):
@@ -48,8 +46,6 @@ def load_api_key():
                     return key
                 else:
                     sys.stderr.write("API key file exists but no key found\n")
-        else:
-            sys.stderr.write("API key file not found\n")
     except Exception as e:
         sys.stderr.write(f"Error loading API key: {str(e)}\n")
         sys.stderr.flush()
@@ -189,78 +185,97 @@ Format requirements:
         if hasattr(self, 'loop') and self.loop.is_running():
             self.loop.call_soon_threadsafe(self.loop.stop)
 
+def get_app_data_dir():
+    """Get the appropriate app data directory for the current platform"""
+    app_data_path = os.environ.get('APP_DATA_PATH')
+    if app_data_path:
+        return app_data_path
+    else:
+        return os.path.join(os.path.expanduser('~'), 'BitNote')
+
 class SessionManager:
     def __init__(self):
         self.sessions = {}
         self.active_session = None
+        
+        # Use proper app data directory
+        self.data_dir = get_app_data_dir()
+        print(f"Using data directory: {self.data_dir}")
+        
+        # Create directory if it doesn't exist
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
+            
+        self.sessions_file = os.path.join(self.data_dir, 'sessions.json')
         self.load_sessions()
 
-    def serialize_sessions(self):
-        """Convert sessions to a minimal JSON-serializable format"""
-        serialized = {
-            sid: {
-                'id': session.id,
-                'name': session.name,
-                'active': session.active,
-                'created_at': session.created_at,
-                'conversation_count': len(session.conversations),
-                'latest_prompt': (session.conversations[-1]['prompt'] 
-                                if session.conversations else None),
-                'is_current': sid == self.active_session
-            }
-            for sid, session in self.sessions.items()
-        }
-        sys.stderr.write(f"Serialized sessions: {serialized}\n")
-        sys.stderr.flush()
-        return serialized
-
     def load_sessions(self):
-        # Load sessions from file if exists
-        if os.path.exists('sessions.json'):
-            with open('sessions.json', 'r') as f:
-                data = json.load(f)
-                for session_data in data:
-                    session = Session(session_data['id'], session_data['name'])
-                    session.conversations = session_data.get('conversations', [])
-                    session.notes = session_data.get('notes', "")
-                    session.active = session_data.get('active', True)
-                    session.created_at = session_data.get('created_at', datetime.now().isoformat())
-                    # Make sure the event loop is started
-                    if not hasattr(session, 'loop') or not session.loop.is_running():
-                        session.loop = asyncio.new_event_loop()
-                        session.summarization_thread = Thread(target=session._run_event_loop, daemon=True)
-                        session.summarization_thread.start()
-                    self.sessions[session.id] = session
+        """Load sessions from JSON file"""
+        try:
+            if os.path.exists(self.sessions_file):
+                with open(self.sessions_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for session_data in data:
+                        session = Session(session_data['id'], session_data['name'])
+                        session.conversations = session_data.get('conversations', [])
+                        session.notes = session_data.get('notes', "")
+                        session.active = session_data.get('active', True)
+                        session.created_at = session_data.get('created_at', datetime.now().isoformat())
+                        self.sessions[session.id] = session
+                print(f"Loaded {len(self.sessions)} sessions")
+        except Exception as e:
+            print(f"Error loading sessions: {str(e)}")
+            # Start with empty sessions if file can't be loaded
+            self.sessions = {}
 
     def save_sessions(self):
-        data = []
-        for session in self.sessions.values():
-            # Ensure all strings are properly encoded
-            data.append({
-                'id': session.id,
-                'name': session.name,
-                'conversations': [{
-                    'prompt': conv['prompt'],
-                    'response': conv['response'],
-                    'timestamp': conv['timestamp']
-                } for conv in session.conversations],
-                'notes': session.notes,
-                'active': session.active,
-                'created_at': session.created_at
-            })
-        with open('sessions.json', 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False)
+        """Save sessions to JSON file"""
+        try:
+            data = []
+            for session in self.sessions.values():
+                data.append({
+                    'id': session.id,
+                    'name': session.name,
+                    'conversations': session.conversations,
+                    'notes': session.notes,
+                    'active': session.active,
+                    'created_at': session.created_at
+                })
+            
+            # Write to a temporary file first
+            temp_file = self.sessions_file + '.tmp'
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            # Then rename it to the actual file (atomic operation)
+            if os.path.exists(self.sessions_file):
+                os.remove(self.sessions_file)
+            os.rename(temp_file, self.sessions_file)
+            
+            print(f"Saved {len(self.sessions)} sessions")
+        except Exception as e:
+            print(f"Error saving sessions: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def create_session(self, name=None):
-        session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_name = name or f"Session {session_id}"
-        print(f"Creating session with ID: {session_id}, Name: {session_name}")  # Debug print
-        session = Session(session_id, session_name)
-        self.sessions[session_id] = session
-        self.active_session = session_id
-        print(f"Current sessions: {list(self.sessions.keys())}")  # Debug print
-        self.save_sessions()
-        return session_id
+        """Create a new session"""
+        try:
+            session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+            session_name = name or f"Session {session_id}"
+            print(f"Creating session: {session_name} ({session_id})")
+            
+            session = Session(session_id, session_name)
+            self.sessions[session_id] = session
+            self.active_session = session_id
+            
+            self.save_sessions()
+            return session_id
+        except Exception as e:
+            print(f"Error creating session: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def end_session(self):
         if self.active_session:
@@ -276,6 +291,23 @@ class SessionManager:
             self.save_sessions()
             return True
         return False
+
+    def serialize_sessions(self):
+        """Convert sessions to a minimal JSON-serializable format"""
+        serialized = {}
+        for sid, session in self.sessions.items():
+            serialized[sid] = {
+                'id': session.id,
+                'name': session.name,
+                'active': session.active,
+                'created_at': session.created_at,
+                'conversation_count': len(session.conversations),
+                'latest_prompt': (session.conversations[-1]['prompt'] 
+                                if session.conversations else None),
+                'is_current': sid == self.active_session
+            }
+        print(f"Serialized {len(serialized)} sessions")
+        return serialized
 
 # Create instances at the module level
 chat_manager = ChatManager()
@@ -460,6 +492,25 @@ def handle_check_api_key(data):
         'hasKey': key_exists
     }
 
+def check_dependencies():
+    """Check if all required packages are installed"""
+    required_packages = ['openai', 'pyperclip']
+    missing_packages = []
+    
+    for package in required_packages:
+        try:
+            __import__(package)
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        print(f"Missing required packages: {', '.join(missing_packages)}")
+        print("Please install using: pip install " + " ".join(missing_packages))
+        sys.exit(1)
+
+# Check dependencies at startup
+check_dependencies()
+
 def main():
     while True:
         try:
@@ -481,7 +532,13 @@ def main():
             sys.stdout.flush()
 
 if __name__ == "__main__":
-    # Initialize the API key first
-    initialize_api_key()
-    # Then start the main loop
-    main() 
+    try:        # Initialize the API key first
+        initialize_api_key()
+        # Then start the main loop
+        main()
+    except Exception as e:
+        print("=== Fatal Error ===")
+        print(f"Error: {str(e)}")
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.exit(1) 
