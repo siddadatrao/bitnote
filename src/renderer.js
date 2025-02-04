@@ -16,6 +16,7 @@ document.querySelector('.prompt-container').insertBefore(statusDiv, promptInput)
 let isRecording = false;
 let activeSessionId = null;  // Track which session is selected
 let apiKeySubmitted = false;
+let useClipboard = true;  // Default to using clipboard
 
 const thinkingMessages = [
     "Pondering the mysteries of code...",
@@ -93,7 +94,9 @@ function updateSessionsList(sessions) {
         // Create session name element
         const nameElement = document.createElement('span');
         nameElement.textContent = session.name;
-        nameElement.onclick = () => {
+        
+        // Move click handler to the entire session element
+        sessionElement.onclick = () => {
             const sessionViewer = document.querySelector('.session-viewer');
             
             // Always clear the current content first
@@ -118,7 +121,7 @@ function updateSessionsList(sessions) {
         deleteButton.innerHTML = '🗑️';
         deleteButton.className = 'delete-session';
         deleteButton.onclick = (e) => {
-            e.stopPropagation();
+            e.stopPropagation();  // Prevent the session click event
             if (confirm(`Delete session "${session.name}"?`)) {
                 if (session.id === activeSessionId) {
                     activeSessionId = null;
@@ -168,7 +171,8 @@ function sendPrompt() {
     // Send prompt with session ID if a session is selected
     const message = {
         prompt,
-        sessionId: activeSessionId,  // This will be null if no session is selected
+        sessionId: activeSessionId,
+        useClipboard: useClipboard,
         command: 'send-prompt'
     };
 
@@ -266,15 +270,18 @@ ipcRenderer.on('python-response', (event, data) => {
             if (typeof data.response === 'string' && 
                 (data.response.includes('<h2>') || data.response.includes('<ul>'))) {
                 if (sessionViewer) {
-                    sessionViewer.innerHTML = data.response;
-                    // Only hide if there are truly no notes
-                    if (data.response === "No notes available yet") {
-                        sessionViewer.style.display = 'none';
-                    } else {
-                        sessionViewer.style.display = 'block';
-                        // Clear any "no notes" message from the main view
-                        if (responseDiv.textContent === "No notes available yet") {
-                            responseDiv.innerHTML = '';
+                    // Check if this is for the active session
+                    if (activeSessionId) {
+                        sessionViewer.innerHTML = data.response;
+                        // Only hide if there are truly no notes
+                        if (data.response === "No notes available yet") {
+                            sessionViewer.style.display = 'none';
+                        } else {
+                            sessionViewer.style.display = 'block';
+                            // Clear any "no notes" message from the main view
+                            if (responseDiv.textContent === "No notes available yet") {
+                                responseDiv.innerHTML = '';
+                            }
                         }
                     }
                 }
@@ -282,6 +289,14 @@ ipcRenderer.on('python-response', (event, data) => {
                 // Regular chat response
                 responseDiv.innerHTML = formatResponse(data.response);
                 responseDiv.style.display = 'block';
+                
+                // If we have an active session, request updated notes
+                if (activeSessionId) {
+                    console.log('Requesting updated notes for session:', activeSessionId);
+                    setTimeout(() => {
+                        ipcRenderer.send('load-session', { id: activeSessionId });
+                    }, 1000); // Give the backend a moment to generate notes
+                }
             }
         }
     } else {
@@ -379,4 +394,16 @@ ipcRenderer.on('api-key-status', (event, data) => {
         apiKeySubmitted = false;
         showApiKeyModal();
     }
+});
+
+// Add clipboard toggle button handler
+const clipboardToggle = document.getElementById('clipboardToggle');
+// Set initial state
+clipboardToggle.classList.toggle('active', useClipboard);
+clipboardToggle.title = useClipboard ? 'Clipboard context enabled' : 'Clipboard context disabled';
+
+clipboardToggle.addEventListener('click', () => {
+    useClipboard = !useClipboard;
+    clipboardToggle.classList.toggle('active', useClipboard);
+    clipboardToggle.title = useClipboard ? 'Clipboard context enabled' : 'Clipboard context disabled';
 }); 

@@ -495,4 +495,25 @@ pre {
 .modal-content p {
     font-size: 13px;
     line-height: 1.4;
+}
+
+#clipboardToggle {
+    background: #404040;
+    transition: all 0.3s ease;
+    padding: 8px 12px;
+    font-size: 16px;
+    border: 1px solid transparent;
+}
+
+#clipboardToggle:hover {
+    background: #505050;
+}
+
+#clipboardToggle.active {
+    background: #2d5af7;
+    border-color: #4070ff;
+}
+
+#clipboardToggle.active:hover {
+    background: #4070ff;
 } 

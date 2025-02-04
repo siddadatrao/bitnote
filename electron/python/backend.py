@@ -116,6 +116,14 @@ class Session:
                     print(f"Notes generation complete: {result[:100]}...")  # Print first 100 chars
                     self.notes = result
                     session_manager.save_sessions()
+                    # Send the updated notes immediately
+                    response = {
+                        'success': True,
+                        'response': result,
+                        'sessions': session_manager.serialize_sessions()
+                    }
+                    sys.stdout.write(json.dumps(response) + '\n')
+                    sys.stdout.flush()
                 except Exception as e:
                     print(f"Error in notes generation: {str(e)}")
             
@@ -349,13 +357,14 @@ def handle_chat_prompt(data):
             'error': 'API key not set'
         }
     
-    current_clipboard = pyperclip.paste()
+    full_prompt = data['prompt']
     
-    if current_clipboard != chat_manager.last_clipboard_content:
-        full_prompt = f"Context:\n{current_clipboard}\n\nQuestion: {data['prompt']}"
-        chat_manager.last_clipboard_content = current_clipboard
-    else:
-        full_prompt = data['prompt']
+    # Only use clipboard if explicitly enabled
+    if data.get('useClipboard', True):  # Default to True for backward compatibility
+        current_clipboard = pyperclip.paste()
+        if current_clipboard and current_clipboard != chat_manager.last_clipboard_content:
+            full_prompt = f"Context:\n{current_clipboard}\n\nQuestion: {data['prompt']}"
+            chat_manager.last_clipboard_content = current_clipboard
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT}

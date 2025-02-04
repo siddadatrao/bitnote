@@ -49,7 +49,6 @@ function createWindow() {
         frame: true,
         transparent: false,
         backgroundColor: '#191919',
-        alwaysOnTop: true,
         resizable: true,
         titleBarStyle: 'default'
     });
@@ -64,17 +63,44 @@ function createWindow() {
 function startPythonBackend() {
     const isDev = process.defaultApp || /[\\/]electron-prebuilt[\\/]/.test(process.execPath);
     const appDataPath = ensureAppDirectories();
-    const appPath = isDev ? __dirname : path.join(process.resourcesPath, 'app');
-    const scriptPath = path.join(appPath, 'electron', 'python', 'dist', 'backend');
     
-    pythonProcess = spawn(scriptPath, [], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: {
-            ...process.env,
-            NODE_ENV: process.env.NODE_ENV || 'production',
-            APP_DATA_PATH: appDataPath,
-            PATH: process.env.PATH
-        }
+    if (isDev) {
+        // In development mode, run the Python script directly
+        const scriptPath = path.join(__dirname, 'python', 'backend.py');
+        console.log('Starting Python in dev mode:', scriptPath);
+        pythonProcess = spawn('python', [scriptPath], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: {
+                ...process.env,
+                NODE_ENV: 'development',
+                APP_DATA_PATH: appDataPath,
+                PATH: process.env.PATH
+            }
+        });
+        
+        // Add error handler for development debugging
+        pythonProcess.on('error', (error) => {
+            console.error('Failed to start Python process:', error);
+            console.error('Script path:', scriptPath);
+        });
+    } else {
+        // In production mode, use the compiled binary
+        const appPath = path.join(process.resourcesPath, 'app');
+        const scriptPath = path.join(appPath, 'electron', 'python', 'dist', 'backend');
+        pythonProcess = spawn(scriptPath, [], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: {
+                ...process.env,
+                NODE_ENV: 'production',
+                APP_DATA_PATH: appDataPath,
+                PATH: process.env.PATH
+            }
+        });
+    }
+
+    // Add general error handling
+    pythonProcess.stderr.on('data', (data) => {
+        console.error('Python stderr:', data.toString());
     });
 
     setupPythonProcessHandlers(pythonProcess);
