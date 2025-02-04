@@ -1,6 +1,9 @@
 # BitNote
 
-A desktop application that helps you take notes.
+A desktop application that helps you take notes of your conversation with llms. 
+
+Access here: https://bitnoteui.fly.dev
+
 
 ## Features
 
