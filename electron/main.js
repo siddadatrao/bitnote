@@ -218,6 +218,16 @@ ipcMain.on('check-api-key', (event) => {
     }
 });
 
+ipcMain.on('update-notes', (event, data) => {
+    if (pythonProcess && pythonProcess.stdin) {
+        pythonProcess.stdin.write(JSON.stringify({ 
+            command: 'update-notes',
+            sessionId: data.sessionId,
+            notes: data.notes
+        }) + '\n');
+    }
+});
+
 app.on('ready', () => {
     console.log('\n=== App Starting ===');
     // Create app directory before anything else

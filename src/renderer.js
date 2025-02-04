@@ -266,37 +266,31 @@ ipcRenderer.on('python-response', (event, data) => {
         }
         
         if (data.response) {
+            // Check if this is a notes update
+            if (data.type === 'notes_update' && data.sessionId === activeSessionId) {
+                if (sessionViewer) {
+                    sessionViewer.contentEditable = true;
+                    sessionViewer.innerHTML = data.response;
+                    setupSaveButton(sessionViewer);
+                }
+                return;
+            }
+            
             // If it's a session response (has HTML formatting)
             if (typeof data.response === 'string' && 
                 (data.response.includes('<h2>') || data.response.includes('<ul>'))) {
                 if (sessionViewer) {
                     // Check if this is for the active session
                     if (activeSessionId) {
+                        sessionViewer.contentEditable = true;
                         sessionViewer.innerHTML = data.response;
-                        // Only hide if there are truly no notes
-                        if (data.response === "No notes available yet") {
-                            sessionViewer.style.display = 'none';
-                        } else {
-                            sessionViewer.style.display = 'block';
-                            // Clear any "no notes" message from the main view
-                            if (responseDiv.textContent === "No notes available yet") {
-                                responseDiv.innerHTML = '';
-                            }
-                        }
+                        setupSaveButton(sessionViewer);
                     }
                 }
             } else {
                 // Regular chat response
                 responseDiv.innerHTML = formatResponse(data.response);
                 responseDiv.style.display = 'block';
-                
-                // If we have an active session, request updated notes
-                if (activeSessionId) {
-                    console.log('Requesting updated notes for session:', activeSessionId);
-                    setTimeout(() => {
-                        ipcRenderer.send('load-session', { id: activeSessionId });
-                    }, 1000); // Give the backend a moment to generate notes
-                }
             }
         }
     } else {
@@ -305,6 +299,24 @@ ipcRenderer.on('python-response', (event, data) => {
         responseDiv.style.display = 'block';
     }
 });
+
+// Helper function to setup save button
+function setupSaveButton(sessionViewer) {
+    let saveButton = document.querySelector('.save-notes-button');
+    if (!saveButton) {
+        saveButton = document.createElement('button');
+        saveButton.className = 'save-notes-button';
+        saveButton.textContent = '💾 Save';
+        saveButton.onclick = () => {
+            const updatedNotes = sessionViewer.innerHTML;
+            ipcRenderer.send('update-notes', {
+                sessionId: activeSessionId,
+                notes: updatedNotes
+            });
+        };
+        sessionViewer.parentElement.insertBefore(saveButton, sessionViewer);
+    }
+}
 
 // Add event listeners
 newSessionButton.addEventListener('click', showCreateSessionModal);

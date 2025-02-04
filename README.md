@@ -18,7 +18,7 @@ npm install
 ```
 3. Start the application:
 ```
-npm start
+npm run dev
 ```
 4. Enter your OpenAI API key when prompted (it will be saved for future use)
 

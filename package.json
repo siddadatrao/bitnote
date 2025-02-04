@@ -7,18 +7,7 @@
     "start": "electron .",
     "start-python": "python electron/python/backend.py",
     "dev": "concurrently \"npm run start-python\" \"electron .\"",
-    "build-mac": "pyinstaller electron/python/backend.py --clean --onefile --distpath electron/python/dist && NODE_ENV=production electron-packager . BitNote --platform=darwin --arch=x64 --icon=assets/bitnote.icns --overwrite --ignore=\"node_modules|.git\"",
-    "package-mac": "npm run build-mac && electron-builder --dir"
-  },
-  "build": {
-    "appId": "com.bitnote.app",
-    "directories": {
-      "output": "dist"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "assets/bitnote.icns"
-    }
+    "build-mac": "pyinstaller electron/python/backend.py --clean --onefile --distpath electron/python/dist && electron-packager . BitNote --platform=darwin --arch=x64 --icon=assets/bitnote.icns --overwrite --ignore=\"node_modules|.git\" --prune=true"
   },
   "dependencies": {
     "electron": "^28.3.3"
@@ -26,6 +15,6 @@
   "devDependencies": {
     "concurrently": "^8.0.1",
     "electron-packager": "^17.1.2",
-    "electron-builder": "^24.13.3"
+    "electron": "^28.3.3"
   }
 }

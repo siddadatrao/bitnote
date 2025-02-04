@@ -516,4 +516,36 @@ pre {
 
 #clipboardToggle.active:hover {
     background: #4070ff;
+}
+
+.save-notes-button {
+    position: sticky;
+    top: 10px;
+    right: 10px;
+    z-index: 100;
+    background: #404040;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.save-notes-button:hover {
+    background: #505050;
+    transform: translateY(-1px);
+}
+
+.session-viewer[contenteditable="true"] {
+    cursor: text;
+    outline: none;
+}
+
+.session-viewer[contenteditable="true"]:focus {
+    background: rgba(45, 45, 45, 0.8);
 } 

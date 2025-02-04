@@ -9,6 +9,7 @@ from threading import Thread
 from concurrent.futures import ThreadPoolExecutor
 import functools
 import traceback
+import re
 
 # At the top of the file with other global instances
 executor = ThreadPoolExecutor(max_workers=4)
@@ -113,14 +114,16 @@ class Session:
             def done_callback(fut):
                 try:
                     result = fut.result()
-                    print(f"Notes generation complete: {result[:100]}...")  # Print first 100 chars
+                    print(f"Notes generation complete: {result[:100]}...")
                     self.notes = result
                     session_manager.save_sessions()
-                    # Send the updated notes immediately
+                    # Send the updated notes immediately with a specific type
                     response = {
                         'success': True,
                         'response': result,
-                        'sessions': session_manager.serialize_sessions()
+                        'sessions': session_manager.serialize_sessions(),
+                        'type': 'notes_update',  # Add this to identify note updates
+                        'sessionId': self.id
                     }
                     sys.stdout.write(json.dumps(response) + '\n')
                     sys.stdout.flush()
@@ -169,22 +172,41 @@ class Session:
             return None
 
     def summary_prompt(self, conversation_text):
-        return f"""Please create notes of this conversation. We only care about the notes not any commentary. 
-Focus on:
-1. Key concepts and ideas discussed
-2. Important technical details
-4. Any code examples or technical solutions
-5. Core takeaways
+        # First, check if there are existing headings in the notes
+        existing_headings = ""
+        if self.notes and "<h2>" in self.notes:
+            # Extract existing headings
+            headings = re.findall(r'<h2>(.*?)</h2>', self.notes)
+            if headings:
+                existing_headings = "Existing sections to maintain:\n" + "\n".join(f"- {h}" for h in headings)
 
-This shouldn't be a high level summary, it should be detailed and straight to the point as if it was notes. Extract only useful takaways. 
+        return f"""Please create notes of this conversation. We only care about the notes not any commentary. 
+
+Important:
+Maintain a structure that resembles note taking. Create headings if they seem like a new or separate idea. Look to add 
+content to existing sections first. If there are no headings, you should organize information into partitions that make it easy to read. 
+
+Rules:
+1. If there are existing section headings, do not delete them.
+2. Add new sections if content seems to be additive to a new idea.
+3. Always wrap headings in proper HTML tags - never output raw text headings
+4. Start each section with <h2> tags, not plain text
 
 Format requirements:
-- Use HTML formatting (<h2> for main sections, <ul>/<li> for lists)
-- Separate major sections with clear headings
+- Every heading must be wrapped in <h2> tags
+- Use <ul>/<li> for lists
 - Use bullet points for lists of related items
 - If there are code examples, wrap them in <pre><code> tags
 - Use <p> tags for paragraphs
 - Add <br> for spacing where appropriate
+- Never output raw text headings without HTML tags
+
+Example format:
+<h2>Concept Name</h2>
+<ul>
+<li>Point 1</li>
+<li>Point 2</li>
+</ul>
 
 {conversation_text}"""
 
@@ -337,7 +359,8 @@ def process_prompt(data):
             'delete-session': handle_delete_session,
             'get-sessions': handle_get_sessions,
             'set-api-key': handle_set_api_key,
-            'check-api-key': handle_check_api_key
+            'check-api-key': handle_check_api_key,
+            'update-notes': handle_update_notes
         }
         
         handler = handlers.get(command)
@@ -499,6 +522,24 @@ def handle_check_api_key(data):
     return {
         'success': True,
         'hasKey': key_exists
+    }
+
+def handle_update_notes(data):
+    """Handle updating session notes"""
+    session_id = data.get('sessionId')
+    notes = data.get('notes')
+    
+    if session_id and notes and session_id in session_manager.sessions:
+        session = session_manager.sessions[session_id]
+        session.notes = notes
+        session_manager.save_sessions()
+        return {
+            'success': True,
+            'sessions': session_manager.serialize_sessions()
+        }
+    return {
+        'success': False,
+        'error': 'Invalid session or notes data'
     }
 
 def check_dependencies():
