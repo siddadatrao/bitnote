@@ -228,28 +228,10 @@ ipcMain.on('update-notes', (event, data) => {
     }
 });
 
-app.on('ready', () => {
+app.whenReady().then(() => {
     console.log('\n=== App Starting ===');
-    // Create app directory before anything else
-    const appDataPath = ensureAppDirectories();
-    console.log('Created app directory at:', appDataPath);
-    console.log('Directory exists:', fs.existsSync(appDataPath));
-    
-    try {
-        createWindow();
-        console.log('Window created successfully');
-        startPythonBackend();
-        console.log('Python backend start attempted');
-    } catch (error) {
-        console.error('Error during startup:', error);
-    }
-    
-    // Register keyboard shortcut for DevTools
-    globalShortcut.register('CommandOrControl+Shift+I', () => {
-        if (mainWindow) {
-            mainWindow.webContents.openDevTools();
-        }
-    });
+    createWindow();
+    startPythonBackend();
 });
 
 app.on('window-all-closed', () => {

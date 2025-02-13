@@ -15,7 +15,6 @@ document.querySelector('.prompt-container').insertBefore(statusDiv, promptInput)
 
 let isRecording = false;
 let activeSessionId = null;  // Track which session is selected
-let apiKeySubmitted = false;
 let useClipboard = true;  // Default to using clipboard
 
 const thinkingMessages = [
@@ -98,9 +97,9 @@ function updateSessionsList(sessions) {
         // Move click handler to the entire session element
         sessionElement.onclick = () => {
             const sessionViewer = document.querySelector('.session-viewer');
+            const sidebar = document.querySelector('.sidebar');
             
-            // Always clear the current content first
-            sessionViewer.innerHTML = '';
+            console.log('Session clicked:', session.id);
             
             // Toggle session selection
             if (activeSessionId === session.id) {
@@ -109,9 +108,19 @@ function updateSessionsList(sessions) {
                 updateSessionsList(sessions);
             } else {
                 activeSessionId = session.id;
-                updateSessionsList(sessions);
-                // Load session content into side viewer
+                console.log('Setting active session:', activeSessionId);
+                
+                // Make sure sidebar is visible when selecting a session
+                sidebar.classList.remove('collapsed');
+                sidebar.style.display = 'flex';  // Ensure sidebar is displayed
+                
+                // Ensure session viewer is visible
                 sessionViewer.style.display = 'block';
+                sessionViewer.innerHTML = 'Loading...';  // Show loading state
+                
+                updateSessionsList(sessions);
+                
+                // Load session content into side viewer
                 ipcRenderer.send('load-session', { id: session.id });
             }
         };
@@ -136,34 +145,9 @@ function updateSessionsList(sessions) {
     });
 }
 
-function showApiKeyModal() {
-    const modal = document.getElementById('apiKeyModal');
-    const input = document.getElementById('apiKeyInput');
-    modal.style.display = 'block';
-    input.value = '';
-    input.focus();
-}
-
-function submitApiKey() {
-    const input = document.getElementById('apiKeyInput');
-    const key = input.value.trim();
-    if (key && key.startsWith('sk-')) {
-        ipcRenderer.send('set-api-key', { key });
-        document.getElementById('apiKeyModal').style.display = 'none';
-        apiKeySubmitted = true;
-    } else {
-        alert('Please enter a valid OpenAI API key starting with "sk-"');
-    }
-}
-
 function sendPrompt() {
     const prompt = promptInput.value.trim();
     if (!prompt) return;
-
-    if (!apiKeySubmitted) {
-        showApiKeyModal();
-        return;
-    }
 
     showThinkingMessage();
     console.log('Sending prompt:', prompt, 'Active Session:', activeSessionId);
@@ -252,13 +236,39 @@ function formatResponse(response) {
     return `<div class="formatted-response">${formatted}</div>`;
 }
 
+// Add this function to format chat messages
+function formatChatHistory(messages) {
+    let html = '';
+    messages.forEach(message => {
+        const isUser = message.role === 'user';
+        const messageClass = isUser ? 'user-message' : 'assistant-message';
+        html += `<div class="message ${messageClass}">
+            <div class="message-content">${formatResponse(message.content)}</div>
+        </div>`;
+    });
+    return html;
+}
+
 // Update the python-response handler
 ipcRenderer.on('python-response', (event, data) => {
     console.log('Received response:', data);
+    console.log('Response type:', data.type);
+    console.log('Active session:', activeSessionId);
+    console.log('Session ID in response:', data.sessionId);
     hideThinkingMessage();
     
     if (data.success) {
         let sessionViewer = document.querySelector('.session-viewer');
+        let sidebar = document.querySelector('.sidebar');
+        
+        // Ensure elements exist
+        if (!sessionViewer || !sidebar) {
+            console.error('Required elements not found:', { sessionViewer, sidebar });
+            return;
+        }
+        
+        console.log('Session viewer element:', sessionViewer);
+        console.log('Sidebar element:', sidebar);
         
         if (data.sessions) {
             console.log('Updating sessions with:', data.sessions);
@@ -266,30 +276,38 @@ ipcRenderer.on('python-response', (event, data) => {
         }
         
         if (data.response) {
-            // Check if this is a notes update
+            // Handle notes update
             if (data.type === 'notes_update' && data.sessionId === activeSessionId) {
+                console.log('Updating notes for session:', data.sessionId);
                 if (sessionViewer) {
+                    // Ensure sidebar is visible
+                    sidebar.classList.remove('collapsed');
+                    sidebar.style.display = 'flex';
                     sessionViewer.contentEditable = true;
+                    sessionViewer.style.display = 'block';
                     sessionViewer.innerHTML = data.response;
                     setupSaveButton(sessionViewer);
+                    console.log('Updated session viewer content length:', data.response.length);
                 }
                 return;
             }
             
-            // If it's a session response (has HTML formatting)
-            if (typeof data.response === 'string' && 
-                (data.response.includes('<h2>') || data.response.includes('<ul>'))) {
-                if (sessionViewer) {
-                    // Check if this is for the active session
-                    if (activeSessionId) {
-                        sessionViewer.contentEditable = true;
-                        sessionViewer.innerHTML = data.response;
-                        setupSaveButton(sessionViewer);
-                    }
-                }
-            } else {
-                // Regular chat response
-                responseDiv.innerHTML = formatResponse(data.response);
+            // Handle initial session load
+            if (data.sessionId === activeSessionId && sessionViewer) {
+                console.log('Loading initial session content');
+                sidebar.classList.remove('collapsed');
+                sidebar.style.display = 'flex';
+                sessionViewer.contentEditable = true;
+                sessionViewer.style.display = 'block';
+                sessionViewer.innerHTML = data.response;
+                setupSaveButton(sessionViewer);
+                console.log('Loaded initial session content length:', data.response.length);
+                return;
+            }
+            
+            // Handle chat history (left side)
+            if (data.conversation_history) {
+                responseDiv.innerHTML = formatChatHistory(data.conversation_history);
                 responseDiv.style.display = 'block';
             }
         }
@@ -342,14 +360,6 @@ document.getElementById('sessionNameInput').addEventListener('keypress', (e) => 
     }
 });
 
-// Add these event listeners for the API key modal
-document.getElementById('submitApiKey').addEventListener('click', submitApiKey);
-document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        submitApiKey();
-    }
-});
-
 // Add this function to load initial sessions
 function loadInitialSessions() {
     console.log('Loading initial sessions...');
@@ -379,33 +389,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const sidebar = document.querySelector('.sidebar');
     sidebar.classList.add('collapsed');
     document.getElementById('toggleSessions').style.opacity = '0.7';
-    
-    // Check API key on startup
-    checkApiKey();
-});
-
-// Add handler for API key errors
-ipcRenderer.on('api-key-error', () => {
-    apiKeySubmitted = false;
-    showApiKeyModal();
-});
-
-// Add this function to check API key status
-function checkApiKey() {
-    ipcRenderer.send('check-api-key');
-}
-
-// Add this handler for API key check response
-ipcRenderer.on('api-key-status', (event, data) => {
-    console.log('API key status:', data);
-    if (data.success && data.hasKey) {
-        apiKeySubmitted = true;
-        // Hide the modal if it's showing
-        document.getElementById('apiKeyModal').style.display = 'none';
-    } else {
-        apiKeySubmitted = false;
-        showApiKeyModal();
-    }
 });
 
 // Add clipboard toggle button handler
@@ -418,4 +401,37 @@ clipboardToggle.addEventListener('click', () => {
     useClipboard = !useClipboard;
     clipboardToggle.classList.toggle('active', useClipboard);
     clipboardToggle.title = useClipboard ? 'Clipboard context enabled' : 'Clipboard context disabled';
-}); 
+});
+
+// Add this CSS to ensure proper display
+const style = document.createElement('style');
+style.textContent = `
+    .sidebar {
+        display: flex;
+        flex-direction: column;
+        min-width: 300px;
+        max-width: 600px;
+        height: 100vh;
+        background: rgba(35, 35, 35, 0.95);
+        transition: all 0.3s ease;
+    }
+    
+    .sidebar.collapsed {
+        width: 0;
+        min-width: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+    
+    .session-viewer {
+        flex: 1;
+        overflow-y: auto;
+        padding: 15px;
+        background: rgba(40, 40, 40, 0.6);
+        margin: 10px;
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+`;
+document.head.appendChild(style); 

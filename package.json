@@ -7,14 +7,17 @@
     "start": "electron .",
     "start-python": "python electron/python/backend.py",
     "dev": "concurrently \"npm run start-python\" \"electron .\"",
-    "build-mac": "pyinstaller electron/python/backend.py --clean --onefile --distpath electron/python/dist && electron-packager . BitNote --platform=darwin --arch=x64 --icon=assets/bitnote.icns --overwrite --ignore=\"node_modules|.git\" --prune=true"
+    "build-mac": "pip install requests pyperclip && pyinstaller electron/python/backend.py --clean --onefile --hidden-import=requests --distpath electron/python/dist && electron-packager . BitNote --platform=darwin --arch=x64 --icon=assets/bitnote.icns --overwrite --ignore=\"node_modules|.git\" --prune=true"
   },
   "dependencies": {
-    "electron": "^28.3.3"
   },
   "devDependencies": {
     "concurrently": "^8.0.1",
     "electron-packager": "^17.1.2",
     "electron": "^28.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/siddadatrao/bitnote.git"
   }
 }

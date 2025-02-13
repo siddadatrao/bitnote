@@ -95,19 +95,26 @@ button:hover {
 }
 
 .message {
-    margin-bottom: 12px;
+    margin: 10px 0;
+    max-width: 80%;
     padding: 10px;
     border-radius: 8px;
 }
 
 .user-message {
-    background: rgba(45, 90, 247, 0.3);
-    margin-left: 20%;
+    margin-left: auto;
+    background-color: #2d5af7;
+    color: white;
 }
 
 .assistant-message {
-    background: rgba(70, 70, 70, 0.3);
-    margin-right: 20%;
+    margin-right: auto;
+    background-color: #404040;
+    color: white;
+}
+
+.message-content {
+    word-wrap: break-word;
 }
 
 code {
@@ -481,20 +488,6 @@ pre {
     display: block;
     margin: 8px 0;
     content: "";
-}
-
-#apiKeyModal .modal-content {
-    max-width: 400px;
-}
-
-#apiKeyInput {
-    font-family: monospace;
-    letter-spacing: 1px;
-}
-
-.modal-content p {
-    font-size: 13px;
-    line-height: 1.4;
 }
 
 #clipboardToggle {
