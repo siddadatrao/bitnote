@@ -11,9 +11,11 @@
     "start": "electron .",
     "dev": "electron .",
     "clean-artifacts": "rm -rf dist/mac-arm64 && rm -rf dist/*.dmg && xattr -cr . && find . -name '.DS_Store' -type f -delete",
-    "build-mac-electron": "npm run clean-artifacts && electron-builder --mac"
+    "build-mac-electron": "dotenv -e .env -- npm run clean-artifacts && dotenv -e .env -- electron-builder --mac"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.1.0",
+    "dotenv-cli": "^7.4.4",
     "electron": "^28.3.3",
     "electron-builder": "^25.1.8"
   },
@@ -44,7 +46,17 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "signIgnore": "node_modules/*",
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "sign": true
+    },
+    "afterSign": "./scripts/notarize.js",
+    "publish": {
+      "provider": "github",
+      "private": true
     }
   },
   "repository": {
