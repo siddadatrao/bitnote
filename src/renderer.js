@@ -51,16 +51,19 @@ function hideCreateSessionModal() {
     modal.style.display = 'none';
 }
 
-function createNewSession() {
+async function createNewSession() {
     const input = document.getElementById('sessionNameInput');
     const name = input.value.trim();
     if (name) {
         console.log('Creating new session:', name);
-        ipcRenderer.send('start-session', {
-            command: 'start-session',
+        const result = await ipcRenderer.invoke('session-action', {
+            action: 'create',
             name: name
         });
-        hideCreateSessionModal();
+        if (result.success) {
+            updateSessionsList(result.sessions);
+            hideCreateSessionModal();
+        }
     }
 }
 
@@ -96,7 +99,7 @@ function updateSessionsList(sessions) {
         nameElement.textContent = session.name;
         
         // Move click handler to the entire session element
-        sessionElement.onclick = () => {
+        sessionElement.onclick = async () => {
             const sessionViewer = document.querySelector('.session-viewer');
             const sidebar = document.querySelector('.sidebar');
             
@@ -113,16 +116,24 @@ function updateSessionsList(sessions) {
                 
                 // Make sure sidebar is visible when selecting a session
                 sidebar.classList.remove('collapsed');
-                sidebar.style.display = 'flex';  // Ensure sidebar is displayed
+                sidebar.style.display = 'flex';
                 
                 // Ensure session viewer is visible
                 sessionViewer.style.display = 'block';
                 sessionViewer.innerHTML = 'Loading...';  // Show loading state
                 
-                updateSessionsList(sessions);
+                // Load session content
+                const result = await ipcRenderer.invoke('session-action', {
+                    action: 'load',
+                    id: session.id
+                });
                 
-                // Load session content into side viewer
-                ipcRenderer.send('load-session', { id: session.id });
+                if (result.success) {
+                    updateSessionsList(result.sessions);
+                    sessionViewer.contentEditable = true;
+                    sessionViewer.innerHTML = result.notes;
+                    setupSaveButton(sessionViewer);
+                }
             }
         };
         
@@ -130,13 +141,19 @@ function updateSessionsList(sessions) {
         const deleteButton = document.createElement('span');
         deleteButton.innerHTML = '🗑️';
         deleteButton.className = 'delete-session';
-        deleteButton.onclick = (e) => {
+        deleteButton.onclick = async (e) => {
             e.stopPropagation();  // Prevent the session click event
             if (confirm(`Delete session "${session.name}"?`)) {
                 if (session.id === activeSessionId) {
                     activeSessionId = null;
                 }
-                ipcRenderer.send('delete-session', { id: session.id });
+                const result = await ipcRenderer.invoke('session-action', {
+                    action: 'delete',
+                    id: session.id
+                });
+                if (result.success) {
+                    updateSessionsList(result.sessions);
+                }
             }
         };
         
@@ -146,27 +163,49 @@ function updateSessionsList(sessions) {
     });
 }
 
-function sendPrompt() {
+async function sendPrompt() {
     const prompt = promptInput.value.trim();
     if (!prompt) return;
 
     showThinkingMessage();
     console.log('Sending prompt:', prompt, 'Active Session:', activeSessionId, 'Use Clipboard:', useClipboard);
 
-    // Send prompt with session ID if a session is selected
-    const message = {
-        prompt,
-        sessionId: activeSessionId,
-        useClipboard: useClipboard,
-        command: 'send-prompt'
-    };
+    try {
+        const result = await ipcRenderer.invoke('process-prompt', {
+            prompt,
+            sessionId: activeSessionId,
+            useClipboard
+        });
 
-    console.log('Sending message:', message);
-    ipcRenderer.send('send-prompt', message);
-    promptInput.value = '';
+        hideThinkingMessage();
+
+        if (result.success) {
+            if (result.updatedNotes && result.sessionId === activeSessionId) {
+                const sessionViewer = document.querySelector('.session-viewer');
+                if (sessionViewer) {
+                    sessionViewer.innerHTML = result.updatedNotes;
+                }
+            }
+
+            if (result.conversationHistory) {
+                responseDiv.innerHTML = formatChatHistory(result.conversationHistory);
+                responseDiv.style.display = 'block';
+            }
+
+            if (result.sessions) {
+                updateSessionsList(result.sessions);
+            }
+        }
+
+        promptInput.value = '';
+    } catch (error) {
+        hideThinkingMessage();
+        responseDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+        responseDiv.style.display = 'block';
+    }
 }
 
-function refreshMemory() {
+async function refreshMemory() {
     try {
         // Clear the response display
         responseDiv.innerHTML = '';
@@ -175,15 +214,16 @@ function refreshMemory() {
         // Clear the input
         promptInput.value = '';
         
-        // Send refresh command to backend
-        ipcRenderer.send('refresh-memory');
+        const result = await ipcRenderer.invoke('refresh-memory');
         
-        // If we're recording, stop the session
-        if (isRecording) {
-            isRecording = false;
-            sessionButton.classList.remove('session-active');
-            sessionButton.classList.add('session-inactive');
-            ipcRenderer.send('end-session');
+        if (result.success) {
+            if (isRecording) {
+                isRecording = false;
+                sessionButton.classList.remove('session-active');
+                sessionButton.classList.add('session-inactive');
+                await ipcRenderer.invoke('session-action', { action: 'end' });
+            }
+            updateSessionsList(result.sessions);
         }
     } catch (error) {
         responseDiv.textContent = `Error: ${error.message}`;
@@ -250,88 +290,22 @@ function formatChatHistory(messages) {
     return html;
 }
 
-// Update the python-response handler
-ipcRenderer.on('python-response', (event, data) => {
-    console.log('Received response:', data);
-    console.log('Response type:', data.type);
-    console.log('Active session:', activeSessionId);
-    console.log('Session ID in response:', data.sessionId);
-    hideThinkingMessage();
-    
-    if (data.success) {
-        let sessionViewer = document.querySelector('.session-viewer');
-        let sidebar = document.querySelector('.sidebar');
-        
-        // Ensure elements exist
-        if (!sessionViewer || !sidebar) {
-            console.error('Required elements not found:', { sessionViewer, sidebar });
-            return;
-        }
-        
-        console.log('Session viewer element:', sessionViewer);
-        console.log('Sidebar element:', sidebar);
-        
-        if (data.sessions) {
-            console.log('Updating sessions with:', data.sessions);
-            updateSessionsList(data.sessions);
-        }
-        
-        if (data.response) {
-            // Handle notes update
-            if (data.type === 'notes_update' && data.sessionId === activeSessionId) {
-                console.log('Updating notes for session:', data.sessionId);
-                if (sessionViewer) {
-                    // Ensure sidebar is visible
-                    sidebar.classList.remove('collapsed');
-                    sidebar.style.display = 'flex';
-                    sessionViewer.contentEditable = true;
-                    sessionViewer.style.display = 'block';
-                    sessionViewer.innerHTML = data.response;
-                    setupSaveButton(sessionViewer);
-                    console.log('Updated session viewer content length:', data.response.length);
-                }
-                return;
-            }
-            
-            // Handle initial session load
-            if (data.sessionId === activeSessionId && sessionViewer) {
-                console.log('Loading initial session content');
-                sidebar.classList.remove('collapsed');
-                sidebar.style.display = 'flex';
-                sessionViewer.contentEditable = true;
-                sessionViewer.style.display = 'block';
-                sessionViewer.innerHTML = data.response;
-                setupSaveButton(sessionViewer);
-                console.log('Loaded initial session content length:', data.response.length);
-                return;
-            }
-            
-            // Handle chat history (left side)
-            if (data.conversation_history) {
-                responseDiv.innerHTML = formatChatHistory(data.conversation_history);
-                responseDiv.style.display = 'block';
-            }
-        }
-    } else {
-        console.error('Error:', data.error);
-        responseDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
-        responseDiv.style.display = 'block';
-    }
-});
-
-// Helper function to setup save button
 function setupSaveButton(sessionViewer) {
     let saveButton = document.querySelector('.save-notes-button');
     if (!saveButton) {
         saveButton = document.createElement('button');
         saveButton.className = 'save-notes-button';
         saveButton.textContent = '💾 Save';
-        saveButton.onclick = () => {
+        saveButton.onclick = async () => {
             const updatedNotes = sessionViewer.innerHTML;
-            ipcRenderer.send('update-notes', {
+            const result = await ipcRenderer.invoke('session-action', {
+                action: 'update-notes',
                 sessionId: activeSessionId,
                 notes: updatedNotes
             });
+            if (result.success) {
+                updateSessionsList(result.sessions);
+            }
         };
         sessionViewer.parentElement.insertBefore(saveButton, sessionViewer);
     }
@@ -346,9 +320,6 @@ promptInput.addEventListener('keypress', (e) => {
     }
 });
 
-// Add refresh button event listener
-refreshButton.addEventListener('click', refreshMemory);
-
 // Update event listeners
 document.getElementById('createSessionConfirm').addEventListener('click', createNewSession);
 document.getElementById('createSessionCancel').addEventListener('click', hideCreateSessionModal);
@@ -361,14 +332,22 @@ document.getElementById('sessionNameInput').addEventListener('keypress', (e) => 
     }
 });
 
-// Add this function to load initial sessions
-function loadInitialSessions() {
+// Load initial sessions
+async function loadInitialSessions() {
     console.log('Loading initial sessions...');
-    ipcRenderer.send('load-initial-sessions');
+    const result = await ipcRenderer.invoke('get-sessions');
+    if (result.success) {
+        updateSessionsList(result.sessions);
+    }
 }
 
-// Add this to the end of the file
-loadInitialSessions();
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.classList.add('collapsed');
+    document.getElementById('toggleSessions').style.opacity = '0.7';
+    loadInitialSessions();
+});
 
 // Add this near your other event listeners
 document.getElementById('toggleSessions').addEventListener('click', () => {
@@ -383,13 +362,6 @@ document.getElementById('toggleSessions').addEventListener('click', () => {
     } else {
         button.style.opacity = '1';
     }
-});
-
-// Start with sidebar collapsed
-document.addEventListener('DOMContentLoaded', () => {
-    const sidebar = document.querySelector('.sidebar');
-    sidebar.classList.add('collapsed');
-    document.getElementById('toggleSessions').style.opacity = '0.7';
 });
 
 // Add clipboard toggle button handler

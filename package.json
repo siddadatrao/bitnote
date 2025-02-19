@@ -2,19 +2,50 @@
   "name": "BitNote",
   "version": "1.0.0",
   "description": "BitNote - AI Note Taking App",
+  "author": {
+    "name": "Siddhartha Adatrao",
+    "email": "siddadatrao@gmail.com"
+  },
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "start-python": "python electron/python/backend.py",
-    "dev": "concurrently \"npm run start-python\" \"electron .\"",
-    "build-mac": "pip install requests pyperclip && pyinstaller electron/python/backend.py --clean --onefile --hidden-import=requests --distpath electron/python/dist && electron-packager . BitNote --platform=darwin --arch=x64 --icon=assets/bitnote.icns --overwrite --ignore=\"node_modules|.git\" --prune=true"
-  },
-  "dependencies": {
+    "dev": "electron .",
+    "clean-artifacts": "rm -rf dist/mac-arm64 && rm -rf dist/*.dmg && xattr -cr . && find . -name '.DS_Store' -type f -delete",
+    "build-mac-electron": "npm run clean-artifacts && electron-builder --mac"
   },
   "devDependencies": {
-    "concurrently": "^8.0.1",
-    "electron-packager": "^17.1.2",
-    "electron": "^28.3.3"
+    "electron": "^28.3.3",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "electron-clipboard-extended": "^1.1.1"
+  },
+  "build": {
+    "appId": "com.bitnote.app",
+    "productName": "BitNote",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "static/**/*",
+      "assets/**/*",
+      "!**/node_modules/*",
+      "!**/.git/*"
+    ],
+    "mac": {
+      "icon": "assets/bitnote.icns",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    }
   },
   "repository": {
     "type": "git",
