@@ -493,18 +493,17 @@ pre {
 #clipboardToggle {
     background: #404040;
     transition: all 0.3s ease;
-    padding: 8px 12px;
-    font-size: 16px;
-    border: 1px solid transparent;
+    opacity: 0.7;
 }
 
 #clipboardToggle:hover {
     background: #505050;
+    opacity: 1;
 }
 
 #clipboardToggle.active {
     background: #2d5af7;
-    border-color: #4070ff;
+    opacity: 1;
 }
 
 #clipboardToggle.active:hover {

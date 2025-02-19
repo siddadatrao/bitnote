@@ -7,6 +7,7 @@ const sessionButton = document.getElementById('sessionButton');
 const newSessionButton = document.getElementById('newSessionButton');
 const sessionsList = document.getElementById('sessionsList');
 const responseDiv = document.getElementById('response');
+const clipboardToggle = document.getElementById('clipboardToggle');
 
 // Add status message element
 const statusDiv = document.createElement('div');
@@ -15,7 +16,7 @@ document.querySelector('.prompt-container').insertBefore(statusDiv, promptInput)
 
 let isRecording = false;
 let activeSessionId = null;  // Track which session is selected
-let useClipboard = true;  // Default to using clipboard
+let useClipboard = false;  // Default to NOT using clipboard
 
 const thinkingMessages = [
     "Pondering the mysteries of code...",
@@ -150,7 +151,7 @@ function sendPrompt() {
     if (!prompt) return;
 
     showThinkingMessage();
-    console.log('Sending prompt:', prompt, 'Active Session:', activeSessionId);
+    console.log('Sending prompt:', prompt, 'Active Session:', activeSessionId, 'Use Clipboard:', useClipboard);
 
     // Send prompt with session ID if a session is selected
     const message = {
@@ -392,11 +393,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Add clipboard toggle button handler
-const clipboardToggle = document.getElementById('clipboardToggle');
-// Set initial state
-clipboardToggle.classList.toggle('active', useClipboard);
-clipboardToggle.title = useClipboard ? 'Clipboard context enabled' : 'Clipboard context disabled';
-
 clipboardToggle.addEventListener('click', () => {
     useClipboard = !useClipboard;
     clipboardToggle.classList.toggle('active', useClipboard);

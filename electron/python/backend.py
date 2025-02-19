@@ -374,13 +374,26 @@ def handle_chat_prompt(data):
                 pool_maxsize=1
             ))
             
-            # Prepare the prompt
-            current_clipboard = pyperclip.paste()
-            if current_clipboard != chat_manager.last_clipboard_content:
-                full_prompt = f"Context:\n{current_clipboard}\n\nQuestion: {data['prompt']}"
-                chat_manager.last_clipboard_content = current_clipboard
-            else:
-                full_prompt = data['prompt']
+            # Get session if available
+            session_id = data.get('sessionId')
+            chat_session = session_manager.sessions.get(session_id) if session_id else None
+            
+            context_parts = []
+            
+            # Add clipboard content if enabled and changed
+            if data.get('useClipboard'):
+                current_clipboard = pyperclip.paste()
+                if current_clipboard != chat_manager.last_clipboard_content:
+                    context_parts.append(f"Clipboard Context:\n{current_clipboard}")
+                    chat_manager.last_clipboard_content = current_clipboard
+            
+            # Add session notes if available
+            if chat_session and chat_session.notes:
+                context_parts.append(f"Current Summary:\n{chat_session.notes}")
+            
+            # Combine context with prompt
+            context_parts.append(f"Question: {data['prompt']}")
+            full_prompt = "\n\n".join(context_parts)
             
             # Make the API request
             params = {
