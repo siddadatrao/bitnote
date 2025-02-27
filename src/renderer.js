@@ -15,8 +15,8 @@ statusDiv.id = 'statusMessage';
 document.querySelector('.prompt-container').insertBefore(statusDiv, promptInput);
 
 let isRecording = false;
-let activeSessionId = null;  // Track which session is selected
-let useClipboard = false;  // Default to NOT using clipboard
+let activeSessionId = null;
+let useClipboard = false;
 
 const thinkingMessages = [
     "Pondering the mysteries of code...",
@@ -94,55 +94,32 @@ function updateSessionsList(sessions) {
         const sessionElement = document.createElement('div');
         sessionElement.className = `session-item ${session.id === activeSessionId ? 'active' : ''}`;
         
+        // Create session info container
+        const infoContainer = document.createElement('div');
+        infoContainer.className = 'session-info';
+        
         // Create session name element
         const nameElement = document.createElement('span');
+        nameElement.className = 'session-name';
         nameElement.textContent = session.name;
         
-        // Move click handler to the entire session element
-        sessionElement.onclick = async () => {
-            const sessionViewer = document.querySelector('.session-viewer');
-            const sidebar = document.querySelector('.sidebar');
-            
-            console.log('Session clicked:', session.id);
-            
-            // Toggle session selection
-            if (activeSessionId === session.id) {
-                activeSessionId = null;
-                sessionViewer.style.display = 'none';
-                updateSessionsList(sessions);
-            } else {
-                activeSessionId = session.id;
-                console.log('Setting active session:', activeSessionId);
-                
-                // Make sure sidebar is visible when selecting a session
-                sidebar.classList.remove('collapsed');
-                sidebar.style.display = 'flex';
-                
-                // Ensure session viewer is visible
-                sessionViewer.style.display = 'block';
-                sessionViewer.innerHTML = 'Loading...';  // Show loading state
-                
-                // Load session content
-                const result = await ipcRenderer.invoke('session-action', {
-                    action: 'load',
-                    id: session.id
-                });
-                
-                if (result.success) {
-                    updateSessionsList(result.sessions);
-                    sessionViewer.contentEditable = true;
-                    sessionViewer.innerHTML = result.notes;
-                    setupSaveButton(sessionViewer);
-                }
-            }
-        };
+        // Create metadata element
+        const metaElement = document.createElement('span');
+        metaElement.className = 'session-meta';
+        const date = new Date(session.created_at);
+        metaElement.textContent = `Created ${date.toLocaleDateString()} • ${session.conversation_count || 0} messages`;
+        
+        // Add elements to info container
+        infoContainer.appendChild(nameElement);
+        infoContainer.appendChild(metaElement);
         
         // Create delete button
         const deleteButton = document.createElement('span');
         deleteButton.innerHTML = '🗑️';
         deleteButton.className = 'delete-session';
+        deleteButton.title = 'Delete session';
         deleteButton.onclick = async (e) => {
-            e.stopPropagation();  // Prevent the session click event
+            e.stopPropagation();
             if (confirm(`Delete session "${session.name}"?`)) {
                 if (session.id === activeSessionId) {
                     activeSessionId = null;
@@ -157,7 +134,45 @@ function updateSessionsList(sessions) {
             }
         };
         
-        sessionElement.appendChild(nameElement);
+        // Add click handler to the session element
+        sessionElement.onclick = async () => {
+            const sessionViewer = document.querySelector('.session-viewer');
+            const sidebar = document.querySelector('.sidebar');
+            
+            console.log('Session clicked:', session.id);
+            
+            if (activeSessionId === session.id) {
+                activeSessionId = null;
+                sessionViewer.style.display = 'none';
+                updateSessionsList(sessions);
+            } else {
+                activeSessionId = session.id;
+                console.log('Setting active session:', activeSessionId);
+                
+                sidebar.classList.remove('collapsed');
+                sidebar.style.display = 'flex';
+                
+                sessionViewer.style.display = 'block';
+                sessionViewer.innerHTML = 'Loading...';
+                
+                refreshMemory();
+
+                const result = await ipcRenderer.invoke('session-action', {
+                    action: 'load',
+                    id: session.id
+                });
+                
+                if (result.success) {
+                    updateSessionsList(result.sessions);
+                    sessionViewer.contentEditable = true;
+                    sessionViewer.innerHTML = result.notes;
+                    setupSaveButton(sessionViewer);
+                }
+            }
+        };
+        
+        // Assemble the session item
+        sessionElement.appendChild(infoContainer);
         sessionElement.appendChild(deleteButton);
         sessionsList.appendChild(sessionElement);
     });
@@ -291,11 +306,16 @@ function formatChatHistory(messages) {
 }
 
 function setupSaveButton(sessionViewer) {
-    let saveButton = document.querySelector('.save-notes-button');
-    if (!saveButton) {
-        saveButton = document.createElement('button');
-        saveButton.className = 'save-notes-button';
-        saveButton.textContent = '💾 Save';
+    let buttonsContainer = document.querySelector('.action-buttons-container');
+    if (!buttonsContainer) {
+        // Create container for both buttons
+        buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'action-buttons-container';
+        
+        // Create save button
+        const saveButton = document.createElement('button');
+        saveButton.className = 'action-button';
+        saveButton.innerHTML = '💾 Save Changes';
         saveButton.onclick = async () => {
             const updatedNotes = sessionViewer.innerHTML;
             const result = await ipcRenderer.invoke('session-action', {
@@ -304,10 +324,63 @@ function setupSaveButton(sessionViewer) {
                 notes: updatedNotes
             });
             if (result.success) {
+                // Show a brief success message
+                const notification = document.createElement('div');
+                notification.className = 'update-notification success';
+                notification.innerHTML = 'Changes saved successfully!';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 2000);
+                
                 updateSessionsList(result.sessions);
             }
         };
-        sessionViewer.parentElement.insertBefore(saveButton, sessionViewer);
+        
+        // Create PDF download button
+        const downloadButton = document.createElement('button');
+        downloadButton.className = 'action-button secondary';
+        downloadButton.innerHTML = '📄 Download PDF';
+        downloadButton.onclick = async () => {
+            if (!sessionViewer || !sessionViewer.innerHTML.trim()) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'update-notification';
+                errorDiv.innerHTML = 'No content to export';
+                document.body.appendChild(errorDiv);
+                setTimeout(() => errorDiv.remove(), 3000);
+                return;
+            }
+
+            try {
+                const activeSession = document.querySelector('.session-item.active');
+                const sessionName = activeSession ? activeSession.querySelector('span').textContent : 'summary';
+
+                const result = await ipcRenderer.invoke('export-to-pdf', {
+                    html: sessionViewer.innerHTML,
+                    sessionName
+                });
+
+                const notification = document.createElement('div');
+                notification.className = `update-notification ${result.success ? 'success' : ''}`;
+                notification.innerHTML = result.success 
+                    ? `PDF saved successfully to: ${result.filePath}`
+                    : `Failed to export PDF: ${result.message}`;
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 5000);
+            } catch (error) {
+                console.error('Error exporting PDF:', error);
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'update-notification';
+                errorDiv.innerHTML = `Error exporting PDF: ${error.message}`;
+                document.body.appendChild(errorDiv);
+                setTimeout(() => errorDiv.remove(), 5000);
+            }
+        };
+
+        // Add buttons to container
+        buttonsContainer.appendChild(saveButton);
+        buttonsContainer.appendChild(downloadButton);
+        
+        // Insert container before the session viewer
+        sessionViewer.parentNode.insertBefore(buttonsContainer, sessionViewer);
     }
 }
 
@@ -371,6 +444,11 @@ clipboardToggle.addEventListener('click', () => {
     clipboardToggle.title = useClipboard ? 'Clipboard context enabled' : 'Clipboard context disabled';
 });
 
+// Add refresh button handler
+refreshButton.addEventListener('click', () => {
+    refreshMemory();
+});
+
 // Add this CSS to ensure proper display
 const style = document.createElement('style');
 style.textContent = `
@@ -402,4 +480,217 @@ style.textContent = `
         line-height: 1.5;
     }
 `;
-document.head.appendChild(style); 
+document.head.appendChild(style);
+
+// Update handling
+function showUpdateNotification(message, type = 'info') {
+    // Remove existing notification if present
+    if (currentNotification) {
+        currentNotification.remove();
+    }
+
+    const notification = document.createElement('div');
+    notification.className = `update-notification ${type}`;
+    notification.innerHTML = `
+        <div class="update-content">
+            <div class="update-header">
+                <span class="update-title">${message}</span>
+                <button class="close-button">×</button>
+            </div>
+            <div class="progress-bar-container" style="display: none;">
+                <div class="progress-bar"></div>
+                <div class="progress-text">Preparing...</div>
+            </div>
+            <div class="update-actions"></div>
+        </div>
+    `;
+
+    // Add close button handler
+    notification.querySelector('.close-button').onclick = () => {
+        notification.classList.add('fade-out');
+        setTimeout(() => notification.remove(), 300);
+    };
+
+    document.body.appendChild(notification);
+    return notification;
+}
+
+let currentNotification = null;
+let downloadStartTime = null;
+
+ipcRenderer.on('update-available', (event, info) => {
+    console.log('Received update-available event:', info);
+    currentNotification = showUpdateNotification(`Update v${info.version} available!`, 'info');
+    const actions = currentNotification.querySelector('.update-actions');
+    
+    const downloadButton = document.createElement('button');
+    downloadButton.className = 'primary-button';
+    downloadButton.textContent = 'Download Update';
+    downloadButton.onclick = async () => {
+        try {
+            console.log('Starting update download...');
+            downloadStartTime = Date.now();
+            downloadButton.disabled = true;
+            downloadButton.textContent = 'Downloading...';
+            
+            // Show progress container immediately
+            const progressContainer = currentNotification.querySelector('.progress-bar-container');
+            progressContainer.style.display = 'block';
+            
+            const result = await ipcRenderer.invoke('start-update');
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to start update');
+            }
+        } catch (error) {
+            console.error('Error starting update:', error);
+            showUpdateNotification(`Update error: ${error.message}`, 'error');
+        }
+    };
+    
+    const dismissButton = document.createElement('button');
+    dismissButton.className = 'secondary-button';
+    dismissButton.textContent = 'Later';
+    dismissButton.onclick = () => {
+        currentNotification.classList.add('fade-out');
+        setTimeout(() => {
+            currentNotification.remove();
+            currentNotification = null;
+        }, 300);
+    };
+    
+    actions.appendChild(downloadButton);
+    actions.appendChild(dismissButton);
+});
+
+ipcRenderer.on('download-progress', (event, progressObj) => {
+    console.log('Received download progress:', progressObj);
+    if (currentNotification) {
+        const progressBar = currentNotification.querySelector('.progress-bar');
+        const progressText = currentNotification.querySelector('.progress-text');
+        const percent = Math.round(progressObj.percent);
+        
+        progressBar.style.width = `${percent}%`;
+        
+        // Calculate download speed and remaining time
+        const elapsedTime = (Date.now() - downloadStartTime) / 1000; // in seconds
+        const speed = progressObj.bytesPerSecond;
+        const totalSize = progressObj.total;
+        const downloaded = progressObj.transferred;
+        const remaining = (totalSize - downloaded) / speed;
+        
+        // Format sizes
+        const formatSize = (bytes) => {
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        };
+        
+        // Format time
+        const formatTime = (seconds) => {
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            const minutes = Math.floor(seconds / 60);
+            const secs = Math.round(seconds % 60);
+            return `${minutes}m ${secs}s`;
+        };
+        
+        const downloadSpeed = formatSize(speed) + '/s';
+        const remainingTime = formatTime(remaining);
+        const progress = `${formatSize(downloaded)} / ${formatSize(totalSize)}`;
+        
+        progressText.innerHTML = `
+            <div class="progress-details">
+                <span>${percent}%</span>
+                <span>${progress}</span>
+                <span>${downloadSpeed}</span>
+                <span>${remainingTime} remaining</span>
+            </div>
+        `;
+    }
+});
+
+ipcRenderer.on('update-downloaded', () => {
+    if (currentNotification) {
+        currentNotification.remove();
+    }
+    
+    currentNotification = showUpdateNotification(
+        'Update downloaded! Restart the app to apply the update.',
+        'success'
+    );
+    
+    const actions = currentNotification.querySelector('.update-actions');
+    
+    const restartButton = document.createElement('button');
+    restartButton.className = 'primary-button';
+    restartButton.textContent = 'Restart Now';
+    restartButton.onclick = () => {
+        ipcRenderer.invoke('quit-and-install');
+    };
+    
+    const laterButton = document.createElement('button');
+    laterButton.className = 'secondary-button';
+    laterButton.textContent = 'Later';
+    laterButton.onclick = () => {
+        currentNotification.classList.add('fade-out');
+        setTimeout(() => {
+            currentNotification.remove();
+            currentNotification = null;
+        }, 300);
+    };
+    
+    actions.appendChild(restartButton);
+    actions.appendChild(laterButton);
+});
+
+ipcRenderer.on('update-not-available', () => {
+    console.log('No updates available');
+});
+
+// Check for updates periodically (every 30 minutes)
+setInterval(() => {
+    ipcRenderer.invoke('check-for-updates');
+}, 30 * 60 * 1000);
+
+// Initial update check
+ipcRenderer.invoke('check-for-updates');
+
+// Add this after the other event listeners
+document.getElementById('downloadPdfButton').addEventListener('click', async () => {
+    const sessionViewer = document.querySelector('.session-viewer');
+    if (!sessionViewer || !sessionViewer.innerHTML.trim()) {
+        // Show error if no content
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'update-notification';
+        errorDiv.innerHTML = 'No content to export';
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 3000);
+        return;
+    }
+
+    try {
+        // Get session name if available
+        const activeSession = document.querySelector('.session-item.active');
+        const sessionName = activeSession ? activeSession.querySelector('span').textContent : 'summary';
+
+        const result = await ipcRenderer.invoke('export-to-pdf', {
+            html: sessionViewer.innerHTML,
+            sessionName
+        });
+
+        // Show success/error notification
+        const notification = document.createElement('div');
+        notification.className = `update-notification ${result.success ? 'success' : ''}`;
+        notification.innerHTML = result.success 
+            ? `PDF saved successfully to: ${result.filePath}`
+            : `Failed to export PDF: ${result.message}`;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 5000);
+    } catch (error) {
+        console.error('Error exporting PDF:', error);
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'update-notification';
+        errorDiv.innerHTML = `Error exporting PDF: ${error.message}`;
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 5000);
+    }
+}); 

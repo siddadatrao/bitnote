@@ -62,7 +62,7 @@ class AIService {
             const prompt = this.createSummaryPrompt(conversation, existingNotes);
 
             const params = {
-                role: "You are a note summarizer. Create clear, structured notes that only contain useful information and are to the point using HTML formatting for better readability.",
+                role: "You are a note summarizer. Create clear, concise. and structured notes that only contain useful information and are to the point using HTML formatting for better readability.",
                 prompt: prompt
             };
 
@@ -88,15 +88,16 @@ class AIService {
     }
 
     createSummaryPrompt(conversation, existingNotes) {
-        return `Please update the existing notes with new information from this conversation. 
+        return `Integrate the existing notes with new information from this conversation. 
 
 Rules:
-1. If there are existing section headings, do not delete them.
-2. Keep existing ideas and look to expand on them by integrating new information directly into the existing information.
+1. Look to keep existing headings unless there is a better way to organize the information.
+2. Keep existing ideas and look to expand on them by integrating new information directly into the existing information under existing headings.
 3. If new information is substantially different from existing ideas, add additional sections.
-4. Add additional sections if new information is substantially different from existing ideas. If possible draw from the existing information and connect with it. 
-5. Always wrap headings in proper HTML tags - never output raw text headings.
-6. Start each section with <h2> tags, not plain text.
+4. If a new structure makes sense, reformat the existing notes, we want to avoid creating too large of a note. 
+5. Add additional sections if new information is substantially different from existing ideas. If possible draw from the existing information and connect with it. 
+6. Always wrap headings in proper HTML tags - never output raw text headings.
+7. Start each section with <h2> tags, not plain text.
 
 Format requirements:
 - Every heading must be wrapped in <h2> tags.

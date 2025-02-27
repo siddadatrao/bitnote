@@ -1,6 +1,6 @@
 {
   "name": "BitNote",
-  "version": "1.0.0",
+  "version": "3.0.7",
   "description": "BitNote - AI Note Taking App",
   "author": {
     "name": "Siddhartha Adatrao",
@@ -10,8 +10,9 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "clean-artifacts": "rm -rf dist/mac-arm64 && rm -rf dist/*.dmg && xattr -cr . && find . -name '.DS_Store' -type f -delete",
-    "build-mac-electron": "dotenv -e .env -- npm run clean-artifacts && dotenv -e .env -- electron-builder --mac"
+    "clean-artifacts": "rm -rf dist/* && rm -rf dist/*.dmg && xattr -cr . && find . -name '.DS_Store' -type f -delete",
+    "build-mac-electron": "dotenv -e .env -- npm run clean-artifacts && dotenv -e .env -- electron-builder --mac",
+    "publish-new-version": "dotenv -e .env -- npm run clean-artifacts && dotenv -e .env -- electron-builder --mac -p always"
   },
   "devDependencies": {
     "@electron/notarize": "^2.1.0",
@@ -21,7 +22,16 @@
   },
   "dependencies": {
     "axios": "^1.7.9",
-    "electron-clipboard-extended": "^1.1.1"
+    "call-bind": "^1.0.8",
+    "call-bind-apply-helpers": "^1.0.2",
+    "electron-clipboard-extended": "^1.1.1",
+    "electron-log": "^5.3.0",
+    "electron-pdf": "^25.0.0",
+    "electron-updater": "^6.3.9",
+    "function-bind": "^1.1.2",
+    "get-intrinsic": "^1.2.7",
+    "has": "^1.0.4",
+    "puppeteer": "^24.2.1"
   },
   "build": {
     "appId": "com.bitnote.app",
@@ -41,7 +51,18 @@
     "mac": {
       "icon": "assets/bitnote.icns",
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -51,12 +72,18 @@
       "darkModeSupport": true
     },
     "dmg": {
-      "sign": true
+      "sign": true,
+      "artifactName": "${productName}-${version}-${arch}.dmg"
     },
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "afterSign": "./scripts/notarize.js",
     "publish": {
       "provider": "github",
-      "private": true
+      "owner": "siddadatrao",
+      "repo": "bitnote",
+      "private": true,
+      "releaseType": "release",
+      "publishAutoUpdate": true
     }
   },
   "repository": {
