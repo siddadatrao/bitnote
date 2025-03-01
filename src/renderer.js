@@ -3,6 +3,7 @@ const { ipcRenderer } = require('electron');
 const promptInput = document.getElementById('promptInput');
 const sendButton = document.getElementById('sendButton');
 const refreshButton = document.getElementById('refreshButton');
+const addbitButton = document.getElementById('addbitButton');
 const sessionButton = document.getElementById('sessionButton');
 const newSessionButton = document.getElementById('newSessionButton');
 const sessionsList = document.getElementById('sessionsList');
@@ -14,23 +15,39 @@ const statusDiv = document.createElement('div');
 statusDiv.id = 'statusMessage';
 document.querySelector('.prompt-container').insertBefore(statusDiv, promptInput);
 
+// Add keyboard shortcut hint element
+const shortcutHint = document.createElement('div');
+shortcutHint.className = 'shortcut-hint';
+shortcutHint.innerHTML = `<span>${process.platform === 'darwin' ? '⌘' : 'Ctrl'}+I to add last message to notes</span>`;
+document.querySelector('.prompt-container').appendChild(shortcutHint);
+
 let isRecording = false;
 let activeSessionId = null;
 let useClipboard = false;
 
-const thinkingMessages = [
-    "Pondering the mysteries of code...",
-    "Consulting the digital oracle...",
-    "Crunching numbers in cyberspace...",
-    "Mining for digital wisdom...",
-    "Processing in parallel universes...",
-    "Analyzing quantum possibilities...",
-    "Searching the knowledge matrix..."
-];
+const thinkingMessages = {
+    default: [
+        "Pondering the mysteries of code...",
+        "Consulting the digital oracle...",
+        "Crunching numbers in cyberspace...",
+        "Mining for digital wisdom...",
+        "Processing in parallel universes...",
+        "Analyzing quantum possibilities...",
+        "Searching the knowledge matrix..."
+    ],
+    summarizing: [
+        "Organizing your thoughts...",
+        "Crafting your summary...",
+        "Integrating new insights...",
+        "Structuring knowledge..."
+    ]
+};
 
-function showThinkingMessage() {
+function showThinkingMessage(type = 'default') {
     statusDiv.style.display = 'block';
-    const message = thinkingMessages[Math.floor(Math.random() * thinkingMessages.length)];
+    statusDiv.className = type === 'summarizing' ? 'status-message summarizing' : 'status-message';
+    const messages = thinkingMessages[type] || thinkingMessages.default;
+    const message = messages[Math.floor(Math.random() * messages.length)];
     statusDiv.textContent = message;
 }
 
@@ -155,17 +172,39 @@ function updateSessionsList(sessions) {
                 sessionViewer.style.display = 'block';
                 sessionViewer.innerHTML = 'Loading...';
                 
-                refreshMemory();
-
-                const result = await ipcRenderer.invoke('session-action', {
+                // First load the session to get conversation history
+                const loadResult = await ipcRenderer.invoke('session-action', {
                     action: 'load',
                     id: session.id
                 });
                 
-                if (result.success) {
-                    updateSessionsList(result.sessions);
+                if (loadResult.success) {
+                    console.log('Session loaded, updating conversation history');
+                    // Update conversation history
+                    const result = await ipcRenderer.invoke('process-prompt', {
+                        prompt: '',
+                        sessionId: session.id,
+                        useClipboard: false,
+                        loadOnly: true
+                    });
+                    
+                    if (result.success && result.conversationHistory) {
+                        console.log('Conversation history updated:', result.conversationHistory);
+                        // Clear any existing content and scroll position
+                        responseDiv.innerHTML = '';
+                        responseDiv.scrollTop = 0;
+                        
+                        // Add the new content
+                        responseDiv.innerHTML = formatChatHistory(result.conversationHistory);
+                        responseDiv.style.display = 'block';
+                        
+                        // Scroll to the last response
+                        scrollToLastResponse();
+                    }
+                    
+                    updateSessionsList(loadResult.sessions);
                     sessionViewer.contentEditable = true;
-                    sessionViewer.innerHTML = result.notes;
+                    sessionViewer.innerHTML = loadResult.notes;
                     setupSaveButton(sessionViewer);
                 }
             }
@@ -176,6 +215,28 @@ function updateSessionsList(sessions) {
         sessionElement.appendChild(deleteButton);
         sessionsList.appendChild(sessionElement);
     });
+}
+
+// Update the scrollToLastResponse function
+function scrollToLastResponse() {
+    const messages = responseDiv.querySelectorAll('.message');
+    if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        // Add a small delay to ensure the DOM is fully updated
+        setTimeout(() => {
+            lastMessage.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'end',
+                inline: 'nearest'
+            });
+            // Reset any extra spacing that might have been added
+            responseDiv.style.scrollPaddingBottom = '0';
+        }, 100);
+    }
+}
+
+function scrollToRecentResponse() {
+    responseDiv.scrollTop = 0;
 }
 
 async function sendPrompt() {
@@ -195,16 +256,11 @@ async function sendPrompt() {
         hideThinkingMessage();
 
         if (result.success) {
-            if (result.updatedNotes && result.sessionId === activeSessionId) {
-                const sessionViewer = document.querySelector('.session-viewer');
-                if (sessionViewer) {
-                    sessionViewer.innerHTML = result.updatedNotes;
-                }
-            }
-
             if (result.conversationHistory) {
                 responseDiv.innerHTML = formatChatHistory(result.conversationHistory);
                 responseDiv.style.display = 'block';
+                // Scroll to the last response after it's added
+                setTimeout(scrollToLastResponse, 100);
             }
 
             if (result.sessions) {
@@ -220,11 +276,126 @@ async function sendPrompt() {
     }
 }
 
+async function addbit() {
+    if (!activeSessionId) {
+        const notification = document.createElement('div');
+        notification.className = 'update-notification';
+        notification.innerHTML = 'Please create or select a session first';
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 3000);
+        return;
+    }
+
+    showThinkingMessage();
+    try {
+        const sessionViewer = document.querySelector('.session-viewer');
+        const currentNotes = sessionViewer ? sessionViewer.innerHTML : '';
+
+        const result = await ipcRenderer.invoke('session-action', {
+            action: 'generate-summary',
+            sessionId: activeSessionId,
+            existingNotes: currentNotes
+        });
+
+        hideThinkingMessage();
+
+        if (result.success) {
+            if (result.noNewContent) {
+                // Show notification if there's nothing new to summarize
+                const notification = document.createElement('div');
+                notification.className = 'update-notification';
+                notification.innerHTML = 'No new content to summarize since last summary';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 3000);
+            } else {
+                // Update the session viewer with new summary
+                if (sessionViewer) {
+                    sessionViewer.innerHTML = result.summary;
+                }
+                // Show success notification
+                const notification = document.createElement('div');
+                notification.className = 'update-notification success';
+                notification.innerHTML = 'Summary generated successfully';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 3000);
+            }
+            updateSessionsList(result.sessions);
+        }
+    } catch (error) {
+        hideThinkingMessage();
+        const notification = document.createElement('div');
+        notification.className = 'update-notification error';
+        notification.innerHTML = `Error generating summary: ${error.message}`;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 5000);
+    }
+}
+
+async function insertLastResponse() {
+    console.log('=== insertLastResponse called in renderer ===');
+    if (!activeSessionId) {
+        console.log('No active session');
+        const notification = document.createElement('div');
+        notification.className = 'update-notification';
+        notification.innerHTML = 'Please create or select a session first';
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 3000);
+        return;
+    }
+
+    console.log('Active session:', activeSessionId);
+    showThinkingMessage('summarizing');
+    try {
+        const sessionViewer = document.querySelector('.session-viewer');
+        const currentNotes = sessionViewer ? sessionViewer.innerHTML : '';
+        console.log('Current notes length:', currentNotes.length);
+
+        console.log('Invoking session-action with insert-last-response');
+        const result = await ipcRenderer.invoke('session-action', {
+            action: 'insert-last-response',
+            sessionId: activeSessionId,
+            existingNotes: currentNotes
+        });
+        console.log('Received result:', result);
+
+        hideThinkingMessage();
+
+        if (result.success) {
+            if (result.noNewContent) {
+                console.log('No new content to insert');
+                const notification = document.createElement('div');
+                notification.className = 'update-notification';
+                notification.innerHTML = 'No recent response to insert';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 3000);
+            } else {
+                console.log('Updating session viewer with new content');
+                if (sessionViewer) {
+                    sessionViewer.innerHTML = result.summary;
+                }
+                const notification = document.createElement('div');
+                notification.className = 'update-notification success';
+                notification.innerHTML = 'Response added to summary';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 3000);
+            }
+            updateSessionsList(result.sessions);
+        }
+    } catch (error) {
+        console.error('Error in insertLastResponse:', error);
+        hideThinkingMessage();
+        const notification = document.createElement('div');
+        notification.className = 'update-notification error';
+        notification.innerHTML = `Error inserting response: ${error.message}`;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 5000);
+    }
+}
+
 async function refreshMemory() {
     try {
-        // Clear the response display
+        // Clear the response display but maintain its display property
         responseDiv.innerHTML = '';
-        responseDiv.style.display = 'none';
         
         // Clear the input
         promptInput.value = '';
@@ -242,7 +413,6 @@ async function refreshMemory() {
         }
     } catch (error) {
         responseDiv.textContent = `Error: ${error.message}`;
-        responseDiv.style.display = 'block';
     }
 }
 
@@ -416,10 +586,30 @@ async function loadInitialSessions() {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('=== DOM Content Loaded ===');
     const sidebar = document.querySelector('.sidebar');
     sidebar.classList.add('collapsed');
     document.getElementById('toggleSessions').style.opacity = '0.7';
-    loadInitialSessions();
+    
+    // Set up IPC listener for global shortcut
+    console.log('Setting up trigger-insert-last-response listener');
+    ipcRenderer.on('trigger-insert-last-response', () => {
+        console.log('=== Received trigger-insert-last-response from main process ===');
+        console.log('Active session:', activeSessionId);
+        console.log('Session viewer:', document.querySelector('.session-viewer'));
+        insertLastResponse();
+    });
+    
+    // Verify IPC is working
+    console.log('Testing IPC communication...');
+    ipcRenderer.invoke('get-sessions')
+        .then(() => {
+            console.log('IPC communication test successful');
+            loadInitialSessions();
+        })
+        .catch(error => {
+            console.error('IPC communication test failed:', error);
+        });
 });
 
 // Add this near your other event listeners
@@ -447,6 +637,11 @@ clipboardToggle.addEventListener('click', () => {
 // Add refresh button handler
 refreshButton.addEventListener('click', () => {
     refreshMemory();
+});
+
+// Update the addbitButton event listener
+addbitButton.addEventListener('click', () => {
+    addbit();
 });
 
 // Add this CSS to ensure proper display
@@ -478,6 +673,71 @@ style.textContent = `
         border-radius: 8px;
         font-size: 14px;
         line-height: 1.5;
+    }
+
+    .shortcut-hint {
+        position: absolute;
+        top: -24px;
+        left: 20px;
+        background: var(--surface);
+        padding: 4px 8px;
+        border-radius: 6px 6px 0 0;
+        font-size: 11px;
+        color: var(--text-secondary);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-bottom: none;
+        pointer-events: none;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 20px;
+        min-width: 40px;
+    }
+
+    .prompt-container {
+        position: relative;
+    }
+
+    .status-message {
+        padding: 8px;
+        color: var(--text-secondary);
+        text-align: center;
+        font-style: italic;
+        font-size: 13px;
+    }
+
+    .status-message.summarizing {
+        color: var(--primary);
+    }
+
+    .update-notification {
+        background: var(--surface);
+        color: var(--text);
+        padding: 8px 16px;
+        border-radius: 6px;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        max-width: 300px;
+        font-size: 13px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .update-notification.success {
+        background: var(--surface);
+        border: 1px solid var(--primary);
+        color: var(--text);
+    }
+
+    .update-notification.error {
+        background: var(--surface);
+        border: 1px solid rgba(255, 70, 70, 0.5);
+        color: var(--text);
     }
 `;
 document.head.appendChild(style);
@@ -693,4 +953,7 @@ document.getElementById('downloadPdfButton').addEventListener('click', async () 
         document.body.appendChild(errorDiv);
         setTimeout(() => errorDiv.remove(), 5000);
     }
-}); 
+});
+
+// Add this to verify the renderer process is loaded
+console.log('Renderer process initialized'); 

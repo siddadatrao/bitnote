@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, dialog, globalShortcut } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const SessionManager = require('./services/SessionManager');
@@ -58,10 +58,31 @@ function createWindow() {
 
 // IPC Handlers
 ipcMain.handle('process-prompt', async (event, data) => {
+    console.log('Processing prompt:', data);
     const clipboardContent = data.useClipboard ? clipboard.readText() : null;
     const sessionId = data.sessionId;
     const session = sessionId ? sessionManager.getSession(sessionId) : null;
     const existingNotes = session ? session.notes : "";
+
+    if (data.loadOnly) {
+        console.log('Loading conversation history for session:', sessionId);
+        if (session && session.conversations) {
+            const history = [];
+            session.conversations.forEach(conv => {
+                history.push({ role: 'user', content: conv.prompt });
+                history.push({ role: 'assistant', content: conv.response });
+            });
+            aiService.loadConversationHistory(history);
+            console.log('Loaded conversation history:', history);
+            return {
+                success: true,
+                conversationHistory: aiService.getConversationHistory(),
+                sessions: sessionManager.serializeSessions(),
+                sessionId
+            };
+        }
+        return { success: true, conversationHistory: [], sessions: sessionManager.serializeSessions(), sessionId };
+    }
 
     const response = await aiService.processPrompt(
         data.prompt,
@@ -72,32 +93,15 @@ ipcMain.handle('process-prompt', async (event, data) => {
 
     if (session) {
         session.addInteraction(data.prompt, response);
-        
-        // Generate updated notes
-        const updatedNotes = await aiService.generateNotes(
-            { prompt: data.prompt, response },
-            session.notes
-        );
-        
-        session.notes = updatedNotes;
         await sessionManager.saveSessions();
-
-        // Send both chat response and notes update
-        return {
-            success: true,
-            response,
-            updatedNotes,
-            conversationHistory: aiService.getConversationHistory(),
-            sessions: sessionManager.serializeSessions(),
-            sessionId
-        };
     }
 
     return {
         success: true,
         response,
         conversationHistory: aiService.getConversationHistory(),
-        sessions: sessionManager.serializeSessions()
+        sessions: sessionManager.serializeSessions(),
+        sessionId
     };
 });
 
@@ -130,6 +134,55 @@ ipcMain.handle('session-action', async (event, { action, ...data }) => {
         case 'update-notes':
             const updated = sessionManager.updateSessionNotes(data.sessionId, data.notes);
             return { success: true, sessions: sessionManager.serializeSessions() };
+
+        case 'generate-summary':
+            const summarySession = sessionManager.getSession(data.sessionId);
+            if (!summarySession) {
+                throw new Error(`Session ${data.sessionId} not found`);
+            }
+            
+            const summaryResult = await aiService.generateSummary(data.existingNotes);
+            
+            if (!summaryResult.noNewContent) {
+                summarySession.notes = summaryResult.summary;
+                await sessionManager.saveSessions();
+            }
+            
+            return {
+                success: true,
+                summary: summaryResult.summary,
+                noNewContent: summaryResult.noNewContent,
+                sessions: sessionManager.serializeSessions()
+            };
+
+        case 'insert-last-response':
+            console.log('=== Processing insert-last-response action ===');
+            const insertSession = sessionManager.getSession(data.sessionId);
+            console.log('Session found:', insertSession ? insertSession.id : 'null');
+            
+            if (!insertSession) {
+                console.log('Session not found:', data.sessionId);
+                throw new Error(`Session ${data.sessionId} not found`);
+            }
+            
+            console.log('Calling aiService.insertLastResponse');
+            const insertResult = await aiService.insertLastResponse(data.existingNotes);
+            console.log('Insert result:', insertResult);
+            
+            if (!insertResult.noNewContent) {
+                console.log('Updating session notes');
+                insertSession.notes = insertResult.summary;
+                await sessionManager.saveSessions();
+            } else {
+                console.log('No new content to update');
+            }
+            
+            return {
+                success: true,
+                summary: insertResult.summary,
+                noNewContent: insertResult.noNewContent,
+                sessions: sessionManager.serializeSessions()
+            };
 
         default:
             throw new Error(`Unknown session action: ${action}`);
@@ -369,6 +422,28 @@ app.whenReady().then(async () => {
     await initialize();
     createWindow();
     
+    // Register global shortcut
+    const shortcutRegistered = globalShortcut.register('CommandOrControl+I', () => {
+        console.log('Global shortcut CommandOrControl+I triggered');
+        if (mainWindow) {
+            console.log('Sending trigger-insert-last-response to renderer process');
+            try {
+                mainWindow.webContents.send('trigger-insert-last-response');
+                console.log('Message sent successfully');
+            } catch (error) {
+                console.error('Error sending message to renderer:', error);
+            }
+        } else {
+            console.log('mainWindow is not available');
+        }
+    });
+
+    if (!shortcutRegistered) {
+        console.log('Shortcut registration failed');
+    } else {
+        console.log('Shortcut registered successfully');
+    }
+    
     // Check for updates after app is ready
     if (!app.isPackaged) {
         console.log('App is in development mode. Skipping update check.');
@@ -380,6 +455,11 @@ app.whenReady().then(async () => {
     } catch (error) {
         console.error('Error checking for updates:', error);
     }
+});
+
+// Add cleanup of shortcuts
+app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {

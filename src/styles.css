@@ -1,7 +1,7 @@
 :root {
     /* Color Palette */
-    --primary: rgba(45, 90, 247, 0.95);
-    --primary-light: rgba(64, 112, 255, 0.95);
+    --primary: rgba(64, 132, 244, 0.95);
+    --primary-light: rgba(89, 148, 248, 0.95);
     --secondary: rgba(64, 64, 64, 0.95);
     --secondary-light: rgba(80, 80, 80, 0.95);
     --background: rgba(25, 25, 25, 0.95);
@@ -47,16 +47,12 @@ body {
 .prompt-container {
     display: flex;
     gap: 12px;
-    background: rgba(45, 45, 45, 0.95);
+    align-items: center;
     padding: 16px;
-    border-radius: var(--radius-lg);
-    margin-top: auto;
+    background: var(--background);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin: 0;
     position: relative;
-    box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    transition: var(--transition-normal);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
 }
 
 .prompt-container:focus-within {
@@ -143,6 +139,16 @@ body {
     opacity: 1;
 }
 
+#clipboardToggle, #addbit {
+    background: var(--secondary);
+    opacity: 0.8;
+}
+
+#clipboardToggle:hover, #addbit:hover {
+    background: var(--secondary-light);
+    opacity: 1;
+}
+
 #clipboardToggle.active {
     background: var(--primary);
     opacity: 1;
@@ -155,11 +161,11 @@ body {
 #response {
     flex: 1;
     overflow-y: auto;
-    margin-bottom: 15px;
-    background: rgba(45, 45, 45, 0.6);
-    border-radius: 12px;
-    padding: 20px;
-    max-height: calc(100vh - 150px);
+    position: relative;
+    padding: 20px 20px 0 20px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 #response::-webkit-scrollbar {
@@ -177,7 +183,7 @@ body {
 }
 
 .message {
-    margin: 10px 0;
+    margin: 8px 0;
     max-width: 80%;
     padding: 10px;
     border-radius: 8px;
@@ -186,9 +192,13 @@ body {
     animation: message-appear 0.3s ease forwards;
 }
 
+.message:last-child {
+    margin-bottom: 20px;
+}
+
 .user-message {
     margin-left: auto;
-    background-color: #2d5af7;
+    background-color: var(--primary);
     color: white;
 }
 
@@ -844,35 +854,29 @@ pre {
 }
 
 .update-notification {
+    background: var(--surface);
+    color: var(--text);
+    padding: 12px 20px;
+    border-radius: 8px;
     position: fixed;
-    bottom: 20px;
+    top: 20px;
     right: 20px;
-    background: rgba(40, 40, 40, 0.95);
-    border-radius: var(--radius-md);
-    padding: 20px;
-    box-shadow: var(--shadow-lg);
     z-index: 1000;
-    max-width: 360px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    max-width: 400px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    animation: slide-in 0.3s ease-out;
-    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
-}
-
-.update-notification.fade-out {
-    transform: translateX(100%);
-    opacity: 0;
 }
 
 .update-notification.success {
-    background: rgba(26, 71, 42, 0.95);
-    border-color: rgba(72, 187, 120, 0.2);
+    background: var(--surface);
+    border: 1px solid var(--primary);
 }
 
 .update-notification.error {
-    background: rgba(71, 26, 26, 0.95);
-    border-color: rgba(187, 72, 72, 0.2);
+    background: var(--surface);
+    border: 1px solid rgba(255, 70, 70, 0.5);
 }
 
 .update-header {
@@ -1212,4 +1216,16 @@ button:active,
 .action-button:active {
     transform: translateY(0);
     box-shadow: var(--shadow-sm);
+}
+
+.shortcut-hint {
+    position: absolute;
+    bottom: 70px;
+    right: 20px;
+    background: rgba(45, 45, 45, 0.9);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #aaa;
+    z-index: 1000;
 } 
