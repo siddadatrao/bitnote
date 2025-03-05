@@ -73,7 +73,6 @@ ipcMain.handle('process-prompt', async (event, data) => {
                 history.push({ role: 'assistant', content: conv.response });
             });
             aiService.loadConversationHistory(history);
-            console.log('Loaded conversation history:', history);
             return {
                 success: true,
                 conversationHistory: aiService.getConversationHistory(),
@@ -438,10 +437,25 @@ app.whenReady().then(async () => {
         }
     });
 
-    if (!shortcutRegistered) {
+    const saveShortcutRegistered = globalShortcut.register('CommandOrControl+S', () => {
+        console.log('Global shortcut CommandOrControl+S triggered');
+        if (mainWindow) {
+            console.log('Sending trigger-save-notes to renderer process');
+            try {
+                mainWindow.webContents.send('trigger-save-notes');
+                console.log('Message sent successfully');
+            } catch (error) {
+                console.error('Error sending message to renderer:', error);
+            }
+        } else {
+            console.log('mainWindow is not available');
+        }
+    });
+
+    if (!shortcutRegistered || !saveShortcutRegistered) {
         console.log('Shortcut registration failed');
     } else {
-        console.log('Shortcut registered successfully');
+        console.log('Shortcuts registered successfully');
     }
     
     // Check for updates after app is ready

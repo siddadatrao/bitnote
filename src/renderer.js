@@ -18,7 +18,7 @@ document.querySelector('.prompt-container').insertBefore(statusDiv, promptInput)
 // Add keyboard shortcut hint element
 const shortcutHint = document.createElement('div');
 shortcutHint.className = 'shortcut-hint';
-shortcutHint.innerHTML = `<span>${process.platform === 'darwin' ? '⌘' : 'Ctrl'}+I to add last message to notes</span>`;
+shortcutHint.innerHTML = `<span>${process.platform === 'darwin' ? '⌘' : 'Ctrl'}+I to add last message • ${process.platform === 'darwin' ? '⌘' : 'Ctrl'}+S to save</span>`;
 document.querySelector('.prompt-container').appendChild(shortcutHint);
 
 let isRecording = false;
@@ -44,15 +44,15 @@ const thinkingMessages = {
 };
 
 function showThinkingMessage(type = 'default') {
-    statusDiv.style.display = 'block';
-    statusDiv.className = type === 'summarizing' ? 'status-message summarizing' : 'status-message';
+    statusDiv.classList.add('visible');
+    statusDiv.className = type === 'summarizing' ? 'status-message summarizing visible' : 'status-message visible';
     const messages = thinkingMessages[type] || thinkingMessages.default;
     const message = messages[Math.floor(Math.random() * messages.length)];
     statusDiv.textContent = message;
 }
 
 function hideThinkingMessage() {
-    statusDiv.style.display = 'none';
+    statusDiv.classList.remove('visible');
 }
 
 function showCreateSessionModal() {
@@ -303,7 +303,7 @@ async function addbit() {
             if (result.noNewContent) {
                 // Show notification if there's nothing new to summarize
                 const notification = document.createElement('div');
-                notification.className = 'update-notification';
+                notification.className = 'update-notification success';
                 notification.innerHTML = 'No new content to summarize since last summary';
                 document.body.appendChild(notification);
                 setTimeout(() => notification.remove(), 3000);
@@ -599,6 +599,40 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Session viewer:', document.querySelector('.session-viewer'));
         insertLastResponse();
     });
+
+    // Set up IPC listener for save notes shortcut
+    console.log('Setting up trigger-save-notes listener');
+    ipcRenderer.on('trigger-save-notes', async () => {
+        console.log('=== Received trigger-save-notes from main process ===');
+        if (!activeSessionId) {
+            const notification = document.createElement('div');
+            notification.className = 'update-notification';
+            notification.innerHTML = 'Please create or select a session first';
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+            return;
+        }
+
+        const sessionViewer = document.querySelector('.session-viewer');
+        if (sessionViewer) {
+            const updatedNotes = sessionViewer.innerHTML;
+            const result = await ipcRenderer.invoke('session-action', {
+                action: 'update-notes',
+                sessionId: activeSessionId,
+                notes: updatedNotes
+            });
+
+            if (result.success) {
+                const notification = document.createElement('div');
+                notification.className = 'update-notification success';
+                notification.innerHTML = 'Changes saved successfully!';
+                document.body.appendChild(notification);
+                setTimeout(() => notification.remove(), 2000);
+                
+                updateSessionsList(result.sessions);
+            }
+        }
+    });
     
     // Verify IPC is working
     console.log('Testing IPC communication...');
@@ -680,7 +714,7 @@ style.textContent = `
         top: -24px;
         left: 20px;
         background: var(--surface);
-        padding: 4px 8px;
+        padding: 4px 12px;
         border-radius: 6px 6px 0 0;
         font-size: 11px;
         color: var(--text-secondary);
@@ -692,7 +726,8 @@ style.textContent = `
         align-items: center;
         justify-content: center;
         height: 20px;
-        min-width: 40px;
+        min-width: 180px;
+        white-space: nowrap;
     }
 
     .prompt-container {
@@ -700,11 +735,15 @@ style.textContent = `
     }
 
     .status-message {
-        padding: 8px;
+        position: absolute;
+        top: -30px;
+        right: 20px;
+        padding: 4px 12px;
         color: var(--text-secondary);
-        text-align: center;
+        text-align: right;
         font-style: italic;
         font-size: 13px;
+        z-index: 1;
     }
 
     .status-message.summarizing {

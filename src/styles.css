@@ -187,9 +187,6 @@ body {
     max-width: 80%;
     padding: 10px;
     border-radius: 8px;
-    opacity: 0;
-    transform: translateY(10px);
-    animation: message-appear 0.3s ease forwards;
 }
 
 .message:last-child {
@@ -490,19 +487,34 @@ pre {
 
 #statusMessage {
     position: absolute;
-    top: -25px;
-    left: 0;
-    color: #7289da;
-    font-size: 12px;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 11px;
     font-style: italic;
     display: none;
-    animation: pulse 1.5s infinite;
+    padding: 4px 12px;
+    background: var(--surface);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 1000;
+    height: 20px;
+    min-width: 180px;
+    white-space: nowrap;
 }
 
-@keyframes pulse {
-    0% { opacity: 0.6; }
-    50% { opacity: 1; }
-    100% { opacity: 0.6; }
+#statusMessage.visible {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.status-message.summarizing {
+    color: var(--primary);
 }
 
 #response h2 {
@@ -1220,12 +1232,21 @@ button:active,
 
 .shortcut-hint {
     position: absolute;
-    bottom: 70px;
-    right: 20px;
-    background: rgba(45, 45, 45, 0.9);
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    color: #aaa;
-    z-index: 1000;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    padding: 4px 12px;
+    border-radius: 0 0 6px 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: none;
+    pointer-events: none;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    white-space: nowrap;
 } 

@@ -81,13 +81,13 @@ Format requirements:
 
             console.log('Full prompt being sent to API:', fullPrompt);
 
-            const response = await axios.get(this.apiUrl, {
-                params: {
-                    role: "You are a helpful ai that is interested in helping the user learn many viewpoints and perspectives. You give succint answers when required. Maintain context from the previous conversation when responding.",
-                    prompt: fullPrompt
-                },
+            const response = await axios.post(this.apiUrl, {
+                role: "Maintain context from the previous conversation when responding. Keep responses concise and to the point unless asked a more thought provoking question.",
+                prompt: fullPrompt
+            }, {
                 timeout: 60000,
                 headers: {
+                    'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'Accept-Encoding': 'gzip, deflate, br'
                 }
@@ -119,13 +119,13 @@ Format requirements:
             // Create a prompt for summarization
             const summaryPrompt = this.createSummaryPrompt(newMessages, existingNotes);
 
-            const response = await axios.get(this.apiUrl, {
-                params: {
-                    role: "You are a note summarizer. Create clear, concise, and structured notes that only contain useful information and are to the point using HTML formatting for better readability.",
-                    prompt: summaryPrompt
-                },
+            const response = await axios.post(this.apiUrl, {
+                role: "You are a note summarizer. Create clear, concise, and structured notes that only contain useful information and are to the point using HTML formatting for better readability.",
+                prompt: summaryPrompt
+            }, {
                 timeout: 60000,
                 headers: {
+                    'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'Accept-Encoding': 'gzip, deflate, br'
                 }
@@ -173,13 +173,13 @@ New Information to Insert:
 ${lastResponse.content}`;
 
             console.log('Making API request with prompt:', summaryPrompt);
-            const response = await axios.get(this.apiUrl, {
-                params: {
-                    role: "You are a note summarizer. Create clear, concise, and structured notes that only contain useful information and are to the point using HTML formatting for better readability.",
-                    prompt: summaryPrompt
-                },
+            const response = await axios.post(this.apiUrl, {
+                role: "You are a note summarizer. Create clear, concise, and structured notes that only contain useful information and are to the point using HTML formatting for better readability.",
+                prompt: summaryPrompt
+            }, {
                 timeout: 60000,
                 headers: {
+                    'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'Accept-Encoding': 'gzip, deflate, br'
                 }
