@@ -868,17 +868,23 @@ pre {
 .update-notification {
     background: var(--surface);
     color: var(--text);
-    padding: 12px 20px;
-    border-radius: 8px;
+    padding: 8px 16px;
+    border-radius: 6px;
     position: fixed;
-    top: 20px;
+    bottom: 20px;
     right: 20px;
     z-index: 1000;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    max-width: 400px;
+    max-width: 300px;
+    min-width: 200px;
+    font-size: 13px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+    animation: slide-in 0.3s ease-out;
+    height: auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .update-notification.success {

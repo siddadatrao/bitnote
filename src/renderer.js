@@ -761,22 +761,34 @@ style.textContent = `
         z-index: 1000;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         max-width: 300px;
+        min-width: 200px;
         font-size: 13px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
+        animation: slide-in 0.3s ease-out;
+        height: auto;
     }
 
     .update-notification.success {
         background: var(--surface);
         border: 1px solid var(--primary);
-        color: var(--text);
     }
 
     .update-notification.error {
         background: var(--surface);
         border: 1px solid rgba(255, 70, 70, 0.5);
-        color: var(--text);
+    }
+
+    @keyframes slide-in {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
     }
 `;
 document.head.appendChild(style);
