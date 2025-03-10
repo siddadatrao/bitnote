@@ -6,6 +6,7 @@ const AIService = require('./services/AIService');
 const puppeteer = require('puppeteer');
 const fs = require('fs').promises;
 const log = require('electron-log');
+const { v4: uuidv4 } = require('uuid');
 
 let mainWindow;
 let sessionManager;
@@ -105,10 +106,48 @@ ipcMain.handle('process-prompt', async (event, data) => {
 });
 
 ipcMain.handle('session-action', async (event, { action, ...data }) => {
+    console.log('Received session action:', action, data);
+    
     switch (action) {
         case 'create':
-            const sessionId = sessionManager.createSession(data.name);
-            return { success: true, sessionId, sessions: sessionManager.serializeSessions() };
+            console.log('Creating new session:', data.name, 'in folder:', data.folderId);
+            const sessionId = sessionManager.createSession(data.name, data.folderId);
+            return { 
+                success: true, 
+                sessionId, 
+                sessions: sessionManager.serializeSessions() 
+            };
+
+        case 'create-folder':
+            console.log('Creating folder:', data);
+            const folderId = sessionManager.createFolder(data.name, data.parentId);
+            console.log('Created folder with ID:', folderId);
+            const folderResult = { success: true, folderId, sessions: sessionManager.serializeSessions() };
+            console.log('Folder creation result:', folderResult);
+            return folderResult;
+
+        case 'delete-folder':
+            console.log('Deleting folder:', data.id);
+            const folderDeleted = sessionManager.deleteFolder(data.id);
+            return { success: true, sessions: sessionManager.serializeSessions() };
+
+        case 'rename-folder':
+            console.log('Renaming folder:', data);
+            const folderRenamed = sessionManager.renameFolder(data.id, data.name);
+            return { success: true, sessions: sessionManager.serializeSessions() };
+
+        case 'move-folder':
+            console.log('Moving folder:', data);
+            const folderMoved = sessionManager.moveFolder(data.id, data.parentId);
+            return { success: true, sessions: sessionManager.serializeSessions() };
+
+        case 'move-session':
+            console.log('Moving session:', data.sessionId, 'to folder:', data.targetFolderId);
+            const moved = sessionManager.moveSession(data.sessionId, data.targetFolderId);
+            return { 
+                success: moved, 
+                sessions: sessionManager.serializeSessions() 
+            };
 
         case 'end':
             sessionManager.endSession();

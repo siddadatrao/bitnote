@@ -58,9 +58,38 @@ function hideThinkingMessage() {
 function showCreateSessionModal() {
     const modal = document.getElementById('createSessionModal');
     const input = document.getElementById('sessionNameInput');
+    const folderSelect = document.getElementById('sessionFolderSelect');
+    
+    // Populate folder dropdown
+    folderSelect.innerHTML = '<option value="">Root</option>';
+    const addFoldersToSelect = (folders) => {
+        for (const [id, folder] of Object.entries(folders)) {
+            if (id !== 'root') {
+                folderSelect.innerHTML += `<option value="${folder.id}">${folder.name}</option>`;
+                if (folder.children) {
+                    Object.values(folder.children).forEach(childFolder => {
+                        folderSelect.innerHTML += `<option value="${childFolder.id}">&nbsp;&nbsp;${childFolder.name}</option>`;
+                    });
+                }
+            }
+        }
+    };
+    
+    // Get current folders
+    ipcRenderer.invoke('get-sessions').then(result => {
+        if (result.success && result.sessions.folders) {
+            addFoldersToSelect(result.sessions.folders);
+        }
+    });
+
     modal.style.display = 'block';
     input.value = '';
     input.focus();
+
+    // Show sidebar
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.classList.remove('collapsed');
+    document.getElementById('toggleSessions').style.opacity = '1';
 }
 
 function hideCreateSessionModal() {
@@ -70,151 +99,493 @@ function hideCreateSessionModal() {
 
 async function createNewSession() {
     const input = document.getElementById('sessionNameInput');
+    const folderSelect = document.getElementById('sessionFolderSelect');
     const name = input.value.trim();
+    const folderId = folderSelect.value || null;
+    
     if (name) {
-        console.log('Creating new session:', name);
+        console.log('Creating new session:', name, 'in folder:', folderId);
         const result = await ipcRenderer.invoke('session-action', {
             action: 'create',
-            name: name
+            name: name,
+            folderId: folderId
         });
+        
         if (result.success) {
-            updateSessionsList(result.sessions);
+            console.log('Session created successfully:', result);
+            // Force a refresh of the sessions list to ensure proper folder structure
+            const refreshResult = await ipcRenderer.invoke('get-sessions');
+            if (refreshResult.success) {
+                console.log('Refreshing sessions list after creation');
+                updateSessionsList(refreshResult.sessions);
+            }
             hideCreateSessionModal();
+            
+            // Show success notification
+            const notification = document.createElement('div');
+            notification.className = 'update-notification success';
+            notification.innerHTML = `Session "${name}" created successfully`;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        } else {
+            console.error('Failed to create session:', result);
+            // Show error notification
+            const notification = document.createElement('div');
+            notification.className = 'update-notification error';
+            notification.innerHTML = 'Failed to create session';
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
         }
     }
 }
 
-function updateSessionsList(sessions) {
-    console.log('Updating sessions list with:', sessions);
+function updateSessionsList(sessionsData) {
+    console.log('Updating sessions list with:', JSON.stringify(sessionsData, null, 2));
+    
+    // Store the expansion state of folders before updating
+    const expandedFolders = new Set();
+    document.querySelectorAll('.folder-content').forEach(content => {
+        if (!content.classList.contains('collapsed')) {
+            const folderId = content.closest('.folder-container').dataset.folderId;
+            expandedFolders.add(folderId);
+        }
+    });
+    
     sessionsList.innerHTML = '';
     
-    // Add session viewer div if it doesn't exist
-    let sessionViewer = document.querySelector('.session-viewer');
-    if (!sessionViewer) {
-        sessionViewer = document.createElement('div');
-        sessionViewer.className = 'session-viewer';
-        document.querySelector('.sidebar').appendChild(sessionViewer);
-    }
-    
-    // Clear session viewer and hide it if no sessions
-    if (!sessions || Object.keys(sessions).length === 0) {
-        console.log('No sessions to display');
-        sessionViewer.innerHTML = '';
-        sessionViewer.style.display = 'none';
+    if (!sessionsData || !sessionsData.folders) {
+        console.log('No sessions data to display');
         return;
     }
-    
-    // Show session viewer if we have sessions
-    sessionViewer.style.display = 'block';
-    
-    Object.values(sessions).forEach(session => {
-        const sessionElement = document.createElement('div');
-        sessionElement.className = `session-item ${session.id === activeSessionId ? 'active' : ''}`;
+
+    // Create new folder button
+    const newFolderButton = document.createElement('button');
+    newFolderButton.className = 'new-folder-button';
+    newFolderButton.innerHTML = '📁 New Folder';
+    newFolderButton.onclick = () => {
+        console.log('New folder button clicked');
+        showCreateFolderModal();
+    };
+    sessionsList.appendChild(newFolderButton);
+
+    // Create folders container
+    const foldersContainer = document.createElement('div');
+    foldersContainer.className = 'folders-container';
+    sessionsList.appendChild(foldersContainer);
+
+    // Recursively create folder structure
+    function createFolderElement(folder, parentElement) {
+        console.log('Creating folder element:', JSON.stringify(folder, null, 2));
+        const folderElement = document.createElement('div');
+        folderElement.className = 'folder-container';
+        folderElement.dataset.folderId = folder.id;
         
-        // Create session info container
-        const infoContainer = document.createElement('div');
-        infoContainer.className = 'session-info';
-        
-        // Create session name element
-        const nameElement = document.createElement('span');
-        nameElement.className = 'session-name';
-        nameElement.textContent = session.name;
-        
-        // Create metadata element
-        const metaElement = document.createElement('span');
-        metaElement.className = 'session-meta';
-        const date = new Date(session.created_at);
-        metaElement.textContent = `Created ${date.toLocaleDateString()} • ${session.conversation_count || 0} messages`;
-        
-        // Add elements to info container
-        infoContainer.appendChild(nameElement);
-        infoContainer.appendChild(metaElement);
-        
-        // Create delete button
-        const deleteButton = document.createElement('span');
-        deleteButton.innerHTML = '🗑️';
-        deleteButton.className = 'delete-session';
-        deleteButton.title = 'Delete session';
-        deleteButton.onclick = async (e) => {
+        // Add drag and drop handlers for the folder
+        folderElement.addEventListener('dragover', (e) => {
+            e.preventDefault();
             e.stopPropagation();
-            if (confirm(`Delete session "${session.name}"?`)) {
-                if (session.id === activeSessionId) {
-                    activeSessionId = null;
-                }
+            const draggingElement = document.querySelector('.dragging');
+            if (draggingElement) {
+                folderElement.classList.add('drag-over');
+            }
+        });
+
+        folderElement.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            folderElement.classList.remove('drag-over');
+        });
+
+        folderElement.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            folderElement.classList.remove('drag-over');
+            
+            const sessionId = e.dataTransfer.getData('text/plain');
+            if (sessionId) {
+                console.log('Moving session:', sessionId, 'to folder:', folder.id);
                 const result = await ipcRenderer.invoke('session-action', {
-                    action: 'delete',
-                    id: session.id
+                    action: 'move-session',
+                    sessionId: sessionId,
+                    targetFolderId: folder.id === 'root' ? null : folder.id
                 });
+                
                 if (result.success) {
-                    updateSessionsList(result.sessions);
-                }
-            }
-        };
-        
-        // Add click handler to the session element
-        sessionElement.onclick = async () => {
-            const sessionViewer = document.querySelector('.session-viewer');
-            const sidebar = document.querySelector('.sidebar');
-            
-            console.log('Session clicked:', session.id);
-            
-            if (activeSessionId === session.id) {
-                activeSessionId = null;
-                sessionViewer.style.display = 'none';
-                updateSessionsList(sessions);
-            } else {
-                activeSessionId = session.id;
-                console.log('Setting active session:', activeSessionId);
-                
-                sidebar.classList.remove('collapsed');
-                sidebar.style.display = 'flex';
-                
-                sessionViewer.style.display = 'block';
-                sessionViewer.innerHTML = 'Loading...';
-                
-                // First load the session to get conversation history
-                const loadResult = await ipcRenderer.invoke('session-action', {
-                    action: 'load',
-                    id: session.id
-                });
-                
-                if (loadResult.success) {
-                    console.log('Session loaded, updating conversation history');
-                    // Update conversation history
-                    const result = await ipcRenderer.invoke('process-prompt', {
-                        prompt: '',
-                        sessionId: session.id,
-                        useClipboard: false,
-                        loadOnly: true
-                    });
-                    
-                    if (result.success && result.conversationHistory) {
-                        console.log('Conversation history updated:', result.conversationHistory);
-                        // Clear any existing content and scroll position
-                        responseDiv.innerHTML = '';
-                        responseDiv.scrollTop = 0;
-                        
-                        // Add the new content
-                        responseDiv.innerHTML = formatChatHistory(result.conversationHistory);
-                        responseDiv.style.display = 'block';
-                        
-                        // Scroll to the last response
-                        scrollToLastResponse();
+                    console.log('Session moved successfully');
+                    // Force a refresh of the sessions list
+                    const refreshResult = await ipcRenderer.invoke('get-sessions');
+                    if (refreshResult.success) {
+                        updateSessionsList(refreshResult.sessions);
                     }
-                    
-                    updateSessionsList(loadResult.sessions);
-                    sessionViewer.contentEditable = true;
-                    sessionViewer.innerHTML = loadResult.notes;
-                    setupSaveButton(sessionViewer);
+                } else {
+                    console.error('Failed to move session');
+                    // Show error notification
+                    const notification = document.createElement('div');
+                    notification.className = 'update-notification error';
+                    notification.innerHTML = 'Failed to move session to folder';
+                    document.body.appendChild(notification);
+                    setTimeout(() => notification.remove(), 3000);
                 }
             }
+        });
+        
+        // Create folder header
+        const folderHeader = document.createElement('div');
+        folderHeader.className = 'folder-header';
+        
+        // Add expand/collapse toggle
+        const toggleButton = document.createElement('span');
+        toggleButton.className = 'folder-toggle';
+        toggleButton.innerHTML = '▼';
+        folderHeader.appendChild(toggleButton);
+        
+        // Add folder name
+        const folderName = document.createElement('span');
+        folderName.className = 'folder-name';
+        folderName.innerHTML = `${folder.id === 'root' ? '📂' : '📁'} ${folder.name}`;
+        folderHeader.appendChild(folderName);
+        
+        // Add folder actions if not root
+        if (folder.id !== 'root') {
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'folder-actions';
+            
+            // New folder button
+            const newSubfolderButton = document.createElement('button');
+            newSubfolderButton.innerHTML = '📁+';
+            newSubfolderButton.title = 'Create subfolder';
+            newSubfolderButton.onclick = (e) => {
+                e.stopPropagation();
+                showCreateFolderModal(folder.id);
+            };
+            
+            // Rename button
+            const renameButton = document.createElement('button');
+            renameButton.innerHTML = '✏️';
+            renameButton.title = 'Rename folder';
+            renameButton.onclick = (e) => {
+                e.stopPropagation();
+                renameFolder(folder.id, folder.name);
+            };
+            
+            // Delete button
+            const deleteButton = document.createElement('button');
+            deleteButton.innerHTML = '🗑️';
+            deleteButton.title = 'Delete folder';
+            deleteButton.onclick = (e) => {
+                e.stopPropagation();
+                deleteFolder(folder.id);
+            };
+            
+            actionsContainer.appendChild(newSubfolderButton);
+            actionsContainer.appendChild(renameButton);
+            actionsContainer.appendChild(deleteButton);
+            folderHeader.appendChild(actionsContainer);
+        }
+        
+        folderElement.appendChild(folderHeader);
+        
+        // Create folder content container
+        const folderContent = document.createElement('div');
+        folderContent.className = 'folder-content';
+        
+        // Check if this folder was previously expanded
+        if (!expandedFolders.has(folder.id)) {
+            folderContent.classList.add('collapsed');
+            toggleButton.classList.add('collapsed');
+        }
+        
+        // Add click handler for the entire header
+        folderHeader.onclick = (e) => {
+            e.stopPropagation();
+            const isExpanded = !folderContent.classList.contains('collapsed');
+            folderContent.classList.toggle('collapsed');
+            toggleButton.classList.toggle('collapsed');
+            toggleButton.innerHTML = '▼';
         };
         
-        // Assemble the session item
-        sessionElement.appendChild(infoContainer);
-        sessionElement.appendChild(deleteButton);
-        sessionsList.appendChild(sessionElement);
+        // Add sessions
+        if (folder.sessions && folder.sessions.length > 0) {
+            console.log('Adding sessions to folder:', folder.id, folder.sessions);
+            const sessionsContainer = document.createElement('div');
+            sessionsContainer.className = 'folder-sessions';
+            
+            folder.sessions.forEach(sessionId => {
+                const session = sessionsData.sessions[sessionId];
+                if (session) {
+                    const sessionElement = createSessionElement(session, sessionsData);
+                    sessionsContainer.appendChild(sessionElement);
+                }
+            });
+            
+            folderContent.appendChild(sessionsContainer);
+        }
+        
+        // Add child folders recursively
+        if (folder.children) {
+            console.log('Adding child folders to:', folder.id, Object.keys(folder.children));
+            Object.values(folder.children).forEach(childFolder => {
+                createFolderElement(childFolder, folderContent);
+            });
+        }
+        
+        folderElement.appendChild(folderContent);
+        parentElement.appendChild(folderElement);
+    }
+
+    // Start with root folder
+    console.log('Starting folder creation with root:', JSON.stringify(sessionsData.folders.root, null, 2));
+    createFolderElement(sessionsData.folders.root, foldersContainer);
+}
+
+// Helper function to create session elements
+function createSessionElement(session, sessionsData) {
+    console.log('Creating session element:', session);
+    const sessionElement = document.createElement('div');
+    sessionElement.className = `session-item${session.is_current ? ' active' : ''}`;
+    sessionElement.draggable = true;
+    sessionElement.dataset.sessionId = session.id;
+    
+    // Add active state if this is the current session
+    if (session.id === activeSessionId || session.is_current) {
+        sessionElement.classList.add('active');
+    }
+    
+    sessionElement.innerHTML = `
+        <div class="session-info">
+            <span class="session-name">${session.name}</span>
+            <span class="session-meta">
+                ${session.conversation_count} messages • 
+                ${new Date(session.created_at).toLocaleDateString()}
+            </span>
+        </div>
+        <span class="delete-session">🗑️</span>
+    `;
+    
+    // Add drag and drop handlers
+    sessionElement.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', session.id);
+        sessionElement.classList.add('dragging');
     });
+
+    sessionElement.addEventListener('dragend', () => {
+        sessionElement.classList.remove('dragging');
+    });
+    
+    // Add click handler for session selection
+    sessionElement.onclick = async () => {
+        const result = await ipcRenderer.invoke('session-action', {
+            action: 'load',
+            id: session.id
+        });
+        
+        if (result.success) {
+            // Remove active class from all sessions
+            document.querySelectorAll('.session-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Add active class to this session
+            sessionElement.classList.add('active');
+            activeSessionId = session.id;
+            
+            const sessionViewer = document.querySelector('.session-viewer');
+            if (sessionViewer) {
+                sessionViewer.innerHTML = result.notes;
+                sessionViewer.setAttribute('contenteditable', 'true');
+                setupSaveButton(sessionViewer);
+            }
+        }
+    };
+    
+    // Add delete handler
+    const deleteButton = sessionElement.querySelector('.delete-session');
+    deleteButton.onclick = async (e) => {
+        e.stopPropagation();
+        if (confirm('Delete this session?')) {
+            const result = await ipcRenderer.invoke('session-action', {
+                action: 'delete',
+                id: session.id
+            });
+            
+            if (result.success) {
+                updateSessionsList(result.sessions);
+            }
+        }
+    };
+    
+    return sessionElement;
+}
+
+// Add folder management functions
+async function createFolder(name, parentId = null) {
+    console.log('Creating folder:', { name, parentId });
+    if (!name) return;
+    
+    try {
+        const result = await ipcRenderer.invoke('session-action', {
+            action: 'create-folder',
+            name,
+            parentId
+        });
+        
+        console.log('Create folder result:', result);
+        
+        if (result.success) {
+            console.log('Updating sessions list with:', result.sessions);
+            updateSessionsList(result.sessions);
+        }
+    } catch (error) {
+        console.error('Error creating folder:', error);
+    }
+}
+
+async function deleteFolder(folderId) {
+    if (confirm('Delete this folder? All sessions will be moved to root.')) {
+        const result = await ipcRenderer.invoke('session-action', {
+            action: 'delete-folder',
+            id: folderId
+        });
+        
+        if (result.success) {
+            updateSessionsList(result.sessions);
+        }
+    }
+}
+
+async function renameFolder(folderId, currentName) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h3>Rename Folder</h3>
+            <input type="text" class="modal-input" placeholder="Enter folder name" value="${currentName}" autofocus>
+            <div class="modal-actions">
+                <button class="primary-button">Rename</button>
+                <button class="secondary-button">Cancel</button>
+            </div>
+        </div>
+    `;
+    
+    const input = modal.querySelector('input');
+    const renameButton = modal.querySelector('.primary-button');
+    const cancelButton = modal.querySelector('.secondary-button');
+    
+    // Select the text in the input
+    input.select();
+    
+    renameButton.onclick = async () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            const result = await ipcRenderer.invoke('session-action', {
+                action: 'rename-folder',
+                id: folderId,
+                name: newName
+            });
+            
+            if (result.success) {
+                updateSessionsList(result.sessions);
+            }
+        }
+        document.body.removeChild(modal);
+    };
+    
+    cancelButton.onclick = () => {
+        document.body.removeChild(modal);
+    };
+    
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+        }
+    };
+
+    input.onkeypress = (e) => {
+        if (e.key === 'Enter') {
+            renameButton.click();
+        }
+        if (e.key === 'Escape') {
+            cancelButton.click();
+        }
+    };
+    
+    document.body.appendChild(modal);
+    input.focus();
+}
+
+async function moveFolder(folderId, newParentId) {
+    const result = await ipcRenderer.invoke('session-action', {
+        action: 'move-folder',
+        id: folderId,
+        parentId: newParentId
+    });
+    
+    if (result.success) {
+        updateSessionsList(result.sessions);
+    }
+}
+
+function showCreateFolderModal(parentId = null) {
+    console.log('Showing create folder modal, parentId:', parentId);
+    
+    // Show sidebar when creating a new folder
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.classList.remove('collapsed');
+    document.getElementById('toggleSessions').style.opacity = '1';
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h3>Create New ${parentId ? 'Subfolder' : 'Folder'}</h3>
+            <input type="text" class="modal-input" placeholder="Enter folder name" autofocus>
+            <div class="modal-actions">
+                <button class="primary-button">Create</button>
+                <button class="secondary-button">Cancel</button>
+            </div>
+        </div>
+    `;
+    
+    const input = modal.querySelector('input');
+    const createButton = modal.querySelector('.primary-button');
+    const cancelButton = modal.querySelector('.secondary-button');
+    
+    createButton.onclick = async () => {
+        const name = input.value.trim();
+        console.log('Create button clicked, folder name:', name);
+        if (name) {
+            await createFolder(name, parentId);
+            document.body.removeChild(modal);
+        }
+    };
+    
+    cancelButton.onclick = () => {
+        console.log('Cancel button clicked');
+        document.body.removeChild(modal);
+    };
+    
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            console.log('Modal background clicked');
+            document.body.removeChild(modal);
+        }
+    };
+
+    input.onkeypress = (e) => {
+        if (e.key === 'Enter') {
+            console.log('Enter key pressed in input');
+            createButton.click();
+        }
+        if (e.key === 'Escape') {
+            console.log('Escape key pressed in input');
+            cancelButton.click();
+        }
+    };
+    
+    document.body.appendChild(modal);
+    input.focus();
 }
 
 // Update the scrollToLastResponse function
@@ -242,6 +613,15 @@ function scrollToRecentResponse() {
 async function sendPrompt() {
     const prompt = promptInput.value.trim();
     if (!prompt) return;
+
+    if (!activeSessionId) {
+        const notification = document.createElement('div');
+        notification.className = 'update-notification';
+        notification.innerHTML = 'Please create or select a session first';
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 3000);
+        return;
+    }
 
     showThinkingMessage();
     console.log('Sending prompt:', prompt, 'Active Session:', activeSessionId, 'Use Clipboard:', useClipboard);
@@ -558,7 +938,8 @@ function setupSaveButton(sessionViewer) {
 newSessionButton.addEventListener('click', showCreateSessionModal);
 sendButton.addEventListener('click', sendPrompt);
 promptInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
         sendPrompt();
     }
 });
@@ -575,24 +956,20 @@ document.getElementById('sessionNameInput').addEventListener('keypress', (e) => 
     }
 });
 
-// Load initial sessions
-async function loadInitialSessions() {
-    console.log('Loading initial sessions...');
-    const result = await ipcRenderer.invoke('get-sessions');
-    if (result.success) {
-        updateSessionsList(result.sessions);
-    }
-}
-
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     console.log('=== DOM Content Loaded ===');
-    const sidebar = document.querySelector('.sidebar');
-    sidebar.classList.add('collapsed');
-    document.getElementById('toggleSessions').style.opacity = '0.7';
     
-    // Set up IPC listener for global shortcut
-    console.log('Setting up trigger-insert-last-response listener');
+    // Verify sessionsList exists
+    const sessionsList = document.getElementById('sessionsList');
+    if (!sessionsList) {
+        console.error('sessionsList element not found!');
+        return;
+    }
+    console.log('sessionsList element found:', sessionsList);
+    
+    // Set up IPC listeners
+    console.log('Setting up IPC listeners');
     ipcRenderer.on('trigger-insert-last-response', () => {
         console.log('=== Received trigger-insert-last-response from main process ===');
         console.log('Active session:', activeSessionId);
@@ -600,18 +977,9 @@ document.addEventListener('DOMContentLoaded', () => {
         insertLastResponse();
     });
 
-    // Set up IPC listener for save notes shortcut
-    console.log('Setting up trigger-save-notes listener');
     ipcRenderer.on('trigger-save-notes', async () => {
         console.log('=== Received trigger-save-notes from main process ===');
-        if (!activeSessionId) {
-            const notification = document.createElement('div');
-            notification.className = 'update-notification';
-            notification.innerHTML = 'Please create or select a session first';
-            document.body.appendChild(notification);
-            setTimeout(() => notification.remove(), 3000);
-            return;
-        }
+        if (!activeSessionId) return;
 
         const sessionViewer = document.querySelector('.session-viewer');
         if (sessionViewer) {
@@ -633,17 +1001,24 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-    
-    // Verify IPC is working
-    console.log('Testing IPC communication...');
+
+    // Load initial sessions
+    console.log('Loading initial sessions...');
     ipcRenderer.invoke('get-sessions')
-        .then(() => {
-            console.log('IPC communication test successful');
-            loadInitialSessions();
+        .then(result => {
+            console.log('Initial sessions loaded:', JSON.stringify(result, null, 2));
+            if (result.success) {
+                updateSessionsList(result.sessions);
+            }
         })
         .catch(error => {
-            console.error('IPC communication test failed:', error);
+            console.error('Error loading initial sessions:', error);
         });
+        
+    // Ensure sidebar starts collapsed
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.classList.add('collapsed');
+    document.getElementById('toggleSessions').style.opacity = '0.7';
 });
 
 // Add this near your other event listeners
@@ -658,6 +1033,16 @@ document.getElementById('toggleSessions').addEventListener('click', () => {
         button.style.opacity = '0.7';
     } else {
         button.style.opacity = '1';
+        // Refresh sessions list when sidebar is opened
+        ipcRenderer.invoke('get-sessions')
+            .then(result => {
+                if (result.success) {
+                    updateSessionsList(result.sessions);
+                }
+            })
+            .catch(error => {
+                console.error('Error refreshing sessions:', error);
+            });
     }
 });
 
@@ -677,121 +1062,6 @@ refreshButton.addEventListener('click', () => {
 addbitButton.addEventListener('click', () => {
     addbit();
 });
-
-// Add this CSS to ensure proper display
-const style = document.createElement('style');
-style.textContent = `
-    .sidebar {
-        display: flex;
-        flex-direction: column;
-        min-width: 300px;
-        max-width: 600px;
-        height: 100vh;
-        background: rgba(35, 35, 35, 0.95);
-        transition: all 0.3s ease;
-    }
-    
-    .sidebar.collapsed {
-        width: 0;
-        min-width: 0;
-        padding: 0;
-        overflow: hidden;
-    }
-    
-    .session-viewer {
-        flex: 1;
-        overflow-y: auto;
-        padding: 15px;
-        background: rgba(40, 40, 40, 0.6);
-        margin: 10px;
-        border-radius: 8px;
-        font-size: 14px;
-        line-height: 1.5;
-    }
-
-    .shortcut-hint {
-        position: absolute;
-        top: -24px;
-        left: 20px;
-        background: var(--surface);
-        padding: 4px 12px;
-        border-radius: 6px 6px 0 0;
-        font-size: 11px;
-        color: var(--text-secondary);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-bottom: none;
-        pointer-events: none;
-        z-index: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 20px;
-        min-width: 180px;
-        white-space: nowrap;
-    }
-
-    .prompt-container {
-        position: relative;
-    }
-
-    .status-message {
-        position: absolute;
-        top: -30px;
-        right: 20px;
-        padding: 4px 12px;
-        color: var(--text-secondary);
-        text-align: right;
-        font-style: italic;
-        font-size: 13px;
-        z-index: 1;
-    }
-
-    .status-message.summarizing {
-        color: var(--primary);
-    }
-
-    .update-notification {
-        background: var(--surface);
-        color: var(--text);
-        padding: 8px 16px;
-        border-radius: 6px;
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 1000;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        max-width: 300px;
-        min-width: 200px;
-        font-size: 13px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        animation: slide-in 0.3s ease-out;
-        height: auto;
-    }
-
-    .update-notification.success {
-        background: var(--surface);
-        border: 1px solid var(--primary);
-    }
-
-    .update-notification.error {
-        background: var(--surface);
-        border: 1px solid rgba(255, 70, 70, 0.5);
-    }
-
-    @keyframes slide-in {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-`;
-document.head.appendChild(style);
 
 // Update handling
 function showUpdateNotification(message, type = 'info') {
